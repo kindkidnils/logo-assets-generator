@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; object-src 'none';">
+<title>Logo Assets Generator | The Kind Kids</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --topnav-logo: 48px;
+  --topnav-pad: 16px;
+  --topnav-height: calc(var(--topnav-logo) + var(--topnav-pad) * 2);
+}
+html, body { height: 100%; overflow: hidden; font-family: 'Bricolage Grotesque', sans-serif; background: #ECEDEB; }
+#app { width: 100vw; height: 100vh; overflow: hidden; }
+
+#topnav { position: fixed; top: 0; left: 0; right: 0; height: var(--topnav-height); background: #fff; border-bottom: 0.5px solid #E5E7E4; display: flex; align-items: center; justify-content: space-between; padding: var(--topnav-pad); z-index: 30; }
+#topnav-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+#brand-mark { height: var(--topnav-logo); width: auto; flex-shrink: 0; display: block; }
+#topnav-title { font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#topnav-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+#sidebar { position: fixed; top: calc(var(--topnav-height) + 12px); left: 12px; bottom: 12px; width: 284px; display: flex; flex-direction: column; background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.07); z-index: 10; }
+#sidebar-body { flex: 1; overflow-y: scroll; padding: 18px; display: flex; flex-direction: column; gap: 18px; }
+#sidebar-body::-webkit-scrollbar { width: 10px; }
+#sidebar-body::-webkit-scrollbar-track { background: transparent; }
+#sidebar-body::-webkit-scrollbar-thumb { background: #111; border-radius: 99px; border: 3px solid #fff; background-clip: padding-box; }
+
+.section-label { font-size: 14px; font-weight: 700; text-transform: uppercase; color: #111; margin-bottom: 8px; border-top: 1px solid #ECEDEB; padding-top: 18px; }
+.upload-zone { border: 1px dashed #111; border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; font-size: 12px; color: #111; transition: all 0.15s; background: #fff; width: 100%; font-family: 'Bricolage Grotesque', sans-serif; }
+.upload-zone:hover { background: #F2F3F1; }
+input[type=file] { display: none; }
+
+.thumb-grid { display: flex; flex-direction: row; gap: 5px; margin-top: 7px; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; scroll-snap-type: x mandatory; }
+.thumb-grid::-webkit-scrollbar { height: 4px; }
+.thumb-grid::-webkit-scrollbar-track { background: #D8DAD7; border-radius: 99px; }
+.thumb-grid::-webkit-scrollbar-thumb { background: #111; border-radius: 99px; }
+.thumb-wrap { display: flex; flex-direction: column; flex-shrink: 0; width: 72px; scroll-snap-align: start; position: relative; }
+.thumb-remove { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; background: #111; color: #fff; border-radius: 50%; border: 1.5px solid #fff; cursor: pointer; font-size: 13px; line-height: 1; display: none; align-items: center; justify-content: center; z-index: 3; padding: 0; }
+.thumb-wrap:hover .thumb-remove, .thumb-wrap:focus-within .thumb-remove { display: flex; }
+.thumb { aspect-ratio: 1; border-radius: 8px; border: 0.5px solid #D8DAD7; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #F2F3F1; transition: border-color 0.15s; padding: 7px; position: relative; }
+.thumb:hover { border-color: #999; }
+.thumb.active { border: 1.5px solid #111; }
+.thumb img { width: 100%; height: 100%; object-fit: contain; }
+.thumb-add { background: #fff; border: 1px dashed #111; width: 100%; font-family: 'Bricolage Grotesque', sans-serif; }
+.thumb-add:hover { background: #F2F3F1; border-color: #111; }
+.thumb-role-badge {
+  position: absolute; left: 3px; right: 3px; bottom: 3px; z-index: 2;
+  background: rgba(17,17,17,0.82); color: #fff; font-size: 7px; font-weight: 600; letter-spacing: 0.03em;
+  text-transform: uppercase; text-align: center; border-radius: 4px; padding: 2px 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.thumb-label { font-size: 9px; color: #111; text-align: center; margin-top: 3px; line-height: 1.3; word-break: break-word; }
+
+.control-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.control-row label { font-size: 11px; color: #111; min-width: 48px; }
+.check-row { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; font-size: 12px; color: #111; cursor: pointer; }
+.check-row input { accent-color: #111; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+.check-row .swatch-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,0.1); }
+
+.field-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.field-row label { font-size: 11px; color: #111; width: 40px; flex-shrink: 0; }
+.field-row input[type=text], .field-row input[type=number], .field-row select {
+  font-family: 'Bricolage Grotesque', sans-serif; font-size: 12px; color: #111;
+  border: 0.5px solid #D8DAD7; border-radius: 6px; padding: 5px 7px; width: 100%; background: #fff;
+}
+.field-row input[type=color] { width: 30px; height: 26px; border: 0.5px solid #D8DAD7; border-radius: 6px; padding: 0; cursor: pointer; background: none; }
+.cmyk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 6px; }
+.cmyk-grid div { display: flex; flex-direction: column; gap: 2px; }
+.cmyk-grid label { font-size: 9px; color: #111; opacity: 0.6; text-transform: uppercase; }
+.cmyk-grid input { font-family: 'Bricolage Grotesque', sans-serif; font-size: 11px; border: 0.5px solid #D8DAD7; border-radius: 6px; padding: 4px; width: 100%; text-align: center; }
+
+.small-btn { font-family: 'Bricolage Grotesque', sans-serif; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 9px; border-radius: 99px; border: 1px solid #111; background: #fff; color: #111; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.small-btn:hover { background: #111; color: #fff; }
+.small-btn.full { width: 100%; text-align: center; margin-top: 2px; }
+
+.color-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.color-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #F2F3F1; border-radius: 8px; }
+.color-dot { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1.5px rgba(0,0,0,0.08); }
+.color-meta { flex: 1; min-width: 0; }
+.color-name { font-size: 11px; font-weight: 500; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.color-vals { font-size: 9px; color: #111; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.color-remove { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: none; color: #111; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.color-edit { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: none; color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+.color-edit svg { width: 11px; height: 11px; }
+.color-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.hint-text { font-size: 11px; color: #111; line-height: 1.5; font-style: italic; opacity: 0.6; }
+.divider { border: none; border-top: 0.5px solid #E5E7E4; margin: 0; }
+.estimate-text { font-size: 11px; color: #111; opacity: 0.7; margin-top: 6px; }
+.estimate-text b { opacity: 1; }
+
+.toggle-bar { display: flex; background: #ECEEED; border-radius: 99px; padding: 3px; gap: 2px; margin-bottom: 10px; width: 100%; overflow: hidden; }
+.toggle-btn { flex: 1; min-width: 0; font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 8px; border-radius: 99px; border: 1.5px solid transparent; cursor: pointer; background: transparent; color: #111; transition: background 0.15s; white-space: nowrap; }
+.toggle-btn.active { background: #111; color: #fff; }
+
+#sheet-handle { display: none; }
+
+/* Toegankelijkheid: zichtbare focus-indicator op elk interactief element, nooit outline:none zonder vervanging */
+button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid #111; outline-offset: 2px;
+}
+.thumb:focus-visible, .upload-zone:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebar, .thumb, .upload-zone, .btn, .small-btn { transition: none !important; }
+}
+
+#main { position: absolute; top: var(--topnav-height); right: 0; bottom: 0; left: 308px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; padding: 12px; }
+#canvas-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 0; gap: 12px; }
+.btn { font-family: 'Bricolage Grotesque', sans-serif; font-size: 14px; font-weight: 500; padding: 8px 18px; border-radius: 99px; cursor: pointer; border: 1px solid #111; background: #fff; color: #111; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.btn:hover { background: #111; color: #fff; }
+.btn:disabled { pointer-events: none; cursor: not-allowed; background: #F2F3F1; color: #A0A29D; border-color: #E5E7E4; }
+.btn.primary { background: #111; color: #fff; }
+.btn.primary:hover { background: #fff; color: #111; border-color: #111; }
+.btn.primary:disabled { background: #F2F3F1; color: #A0A29D; border-color: #E5E7E4; }
+
+#canvas-wrapper {
+  width: min(700px, calc(100vw - 356px));
+  height: min(calc(100vh - var(--topnav-height) - 170px), 640px);
+  position: relative; overflow-y: auto; box-shadow: 0 2px 24px rgba(0,0,0,0.13); background-color: #fff;
+  border-radius: 12px; padding: 20px 20px 24px;
+}
+.empty-hint {
+  font-family: 'Bricolage Grotesque', sans-serif; font-size: 12px; color: #111; text-align: center; line-height: 1.6;
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); white-space: nowrap; z-index: 1;
+  background: #fff; border: 1px dashed #111; border-radius: 8px; padding: 12px 20px; cursor: pointer; transition: background 0.15s;
+}
+.empty-hint:hover { background: #F2F3F1; }
+
+#export-tree { font-size: 12px; }
+.tree-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 5px; }
+.tree-row.tree-zip { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.tree-row.tree-folder { font-weight: 600; color: #111; }
+.tree-row.tree-file { color: #111; opacity: 0.75; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+.tree-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.tree-toggle {
+  font-family: 'Bricolage Grotesque', sans-serif; font-size: 10px; font-weight: 500; color: #111; opacity: 0.55;
+  background: none; border: none; cursor: pointer; padding: 3px 4px; text-decoration: underline; text-underline-offset: 2px;
+}
+.tree-toggle:hover { opacity: 0.9; }
+
+#copyright { flex-shrink: 0; align-self: flex-end; font-size: 10px; color: #111; opacity: 0.35; padding: 0 4px 4px 0; }
+#status-text { font-size: 11px; color: #111; opacity: 0.6; text-align: center; min-height: 14px; }
+
+@media (max-width: 768px) {
+  #topnav-right .btn { padding: 7px 14px; font-size: 13px; }
+  #sidebar { top: auto; left: 0; right: 0; bottom: 0; width: 100%; border-radius: 20px 20px 0 0; height: 65vh; transform: translateY(calc(100% - 56px)); transition: transform 0.35s cubic-bezier(0.4,0,0.2,1); }
+  #sidebar.open { transform: translateY(0); }
+  #sheet-handle { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; height: 56px; gap: 5px; cursor: pointer; border: none; border-bottom: 0.5px solid #E5E7E4; user-select: none; background: #fff; width: 100%; font-family: 'Bricolage Grotesque', sans-serif; }
+  #handle-bar { width: 36px; height: 4px; background: #D8DAD7; border-radius: 99px; }
+  #handle-label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: #111; }
+  #main { position: absolute; top: var(--topnav-height); left: 0; right: 0; bottom: 56px; padding: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #canvas-area { flex: none; width: auto; gap: 0; }
+  #copyright { display: none; }
+  #canvas-wrapper { width: calc(100vw - 24px); height: min(calc(100vh - var(--topnav-height) - 90px), 500px); }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header id="topnav">
+    <div id="topnav-left">
+      <svg id="brand-mark" viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg" fill="#111" role="img" aria-label="The Kind Kids">
+        <path d="M600,0C269.16,0,0,269.16,0,600s269.16,600,600,600,600-269.16,600-600S930.84,0,600,0ZM600,1169.32c-313.92,0-569.32-255.4-569.32-569.32S286.08,30.68,600,30.68s569.32,255.4,569.32,569.32-255.4,569.32-569.32,569.32Z"/>
+        <polygon points="401.59 440.59 449.52 440.59 449.52 253.81 506.38 253.81 506.38 209.18 344.73 209.18 344.73 253.81 401.59 253.81 401.59 440.59"/>
+        <polygon points="566.76 347.04 634.2 347.04 634.2 440.59 682.13 440.59 682.13 209.18 634.2 209.18 634.2 302.41 566.76 302.41 566.76 209.18 518.82 209.18 518.82 440.59 566.76 440.59 566.76 347.04"/>
+        <polygon points="836.1 395.97 759.4 395.97 759.4 346.38 832.79 346.38 832.79 303.07 759.4 303.07 759.4 253.81 836.1 253.81 836.1 209.18 711.47 209.18 711.47 440.59 836.1 440.59 836.1 395.97"/>
+        <polygon points="340.58 654.38 358.11 625.29 401.08 712.89 455.63 712.89 391.83 587.93 457.29 481.48 404.72 481.48 334.64 596.86 328.02 596.86 340.58 564.13 340.58 481.48 292.65 481.48 292.65 712.89 340.58 712.89 340.58 654.38"/>
+        <rect x="469.72" y="481.48" width="47.94" height="231.41"/>
+        <polygon points="589.74 512.89 596.36 512.89 599.67 581.66 639.66 712.9 710.08 712.9 710.08 481.48 667.44 481.48 667.44 681.49 660.49 681.49 656.85 612.4 617.19 481.48 546.77 481.48 546.77 712.9 589.74 712.9 589.74 512.89"/>
+        <path d="M814.46,481.48h-75.04v231.41h75.04c42.31,0,71.4-20.17,84.3-56.53,5.95-16.53,8.59-37.03,8.59-59.17s-2.64-42.65-8.59-59.17c-12.9-36.37-41.99-56.53-84.3-56.53ZM851.81,639.83c-6.28,17.86-19.17,28.44-36.7,28.44h-27.76v-142.15h27.76c17.52,0,30.42,10.58,36.7,28.43,3.97,11.24,5.62,27.44,5.62,42.65s-1.66,31.4-5.62,42.64Z"/>
+        <polygon points="420.98 753.78 350.9 869.16 344.29 869.16 356.85 836.43 356.85 753.78 308.91 753.78 308.91 985.2 356.85 985.2 356.85 926.68 374.37 897.59 417.34 985.2 471.9 985.2 408.09 860.23 473.55 753.78 420.98 753.78"/>
+        <rect x="485.98" y="753.78" width="47.94" height="231.41"/>
+        <path d="M638.08,753.79h-75.04v231.41h75.04c42.31,0,71.4-20.17,84.3-56.53,5.95-16.53,8.59-37.03,8.59-59.17s-2.64-42.65-8.59-59.17c-12.9-36.37-41.99-56.53-84.3-56.53ZM675.43,912.14c-6.28,17.86-19.17,28.44-36.69,28.44h-27.77v-142.15h27.77c17.52,0,30.41,10.58,36.69,28.43,3.97,11.24,5.62,27.45,5.62,42.65s-1.65,31.4-5.62,42.64Z"/>
+        <path d="M817.36,748.17c-31.07,0-53.56,11.57-65.13,31.73-6.28,10.91-9.59,24.13-9.59,39.67s2.65,27.43,8.93,38.01c7.6,13.56,20.5,22.48,38.35,27.77l26.45,8.27c11.57,3.31,18.18,8.27,21.82,13.89,2.64,4.3,3.31,9.26,3.31,15.2,0,6.28-1.33,11.24-3.96,15.54-3.97,6.94-11.57,10.58-22.48,10.58-17.52,0-27.11-9.92-27.11-29.75v-9.26h-47.61v9.92c0,46.28,27.11,71.07,74.38,71.07,31.4,0,53.89-11.24,65.79-31.74,6.28-10.58,9.26-24.13,9.26-39.67s-2.65-27.44-8.6-38.02c-7.93-13.55-20.82-23.14-39-28.1l-26.11-8.6c-11.57-3.3-18.19-7.93-21.82-13.88-2.31-3.97-2.97-8.93-2.97-14.55,0-6.28,1.32-11.24,3.63-15.53,3.97-6.94,11.57-10.58,22.48-10.58,17.19,0,26.45,9.59,26.45,29.09v9.26h47.61v-9.92c0-45.95-26.78-70.41-74.05-70.41Z"/>
+      </svg>
+      <div id="topnav-title">Logo Assets Generator</div>
+    </div>
+    <div id="topnav-right">
+      <button class="btn primary" id="export-btn" onclick="exportZip()" disabled>Download ZIP</button>
+    </div>
+  </header>
+
+  <div id="sidebar">
+    <button id="sheet-handle" onclick="toggleSheet()" aria-label="Sidebar openen/sluiten">
+      <div id="handle-bar"></div>
+      <span id="handle-label">Logo Assets Generator</span>
+    </button>
+    <div id="sidebar-body">
+
+      <div>
+        <div class="section-label" style="border-top:none; padding-top:0">01. Klant / organisatie</div>
+        <div class="field-row"><label for="client-name">Naam</label><input type="text" id="client-name" placeholder="Klantnaam" oninput="onClientNameChange()"></div>
+        <div class="hint-text" style="margin-top:6px">Deze naam vormt de basis van elke bestandsnaam in de export — niet de naam van het bestand dat je uploadt.</div>
+      </div>
+
+      <div>
+        <div class="section-label">02. Logo's</div>
+        <button class="upload-zone" onclick="document.getElementById('logo-upload').click()">Kies of upload logo's (SVG, PDF, PNG)</button>
+        <input type="file" id="logo-upload" accept=".svg,image/svg+xml,.pdf,application/pdf,image/png,image/jpeg" multiple onchange="handleLogoUpload(this)">
+        <div class="thumb-grid" id="logo-thumbs"></div>
+        <div id="logo-role-controls" style="display:none; margin-top:8px">
+          <div class="hint-text" style="opacity:0.85; font-style:normal; margin-bottom:4px">Rol voor "<span id="logo-role-active-name"></span>"</div>
+          <div class="field-row">
+            <label for="logo-role">Rol</label>
+            <input type="text" id="logo-role" list="role-suggestions" placeholder="Rol van het logo" oninput="setActiveLogoRole(this.value)">
+            <datalist id="role-suggestions">
+              <option value="Primary Logo">
+              <option value="Logo Mark">
+              <option value="Wordmark">
+              <option value="Icon">
+              <option value="Alternate">
+              <option value="Cirkel">
+              <option value="Ovaal">
+              <option value="Horizontaal">
+              <option value="Verticaal">
+              <option value="Stacked">
+            </datalist>
+          </div>
+        </div>
+        <div class="hint-text" style="margin-top:6px">Elk logo krijgt een genummerde map op basis van zijn rol, bv. 01_Primary_Logo. Typ zelf een naam of kies een suggestie. SVG of PDF geven het beste resultaat voor print (echt vectoriële EPS); bij een PDF wordt enkel de eerste pagina gebruikt.</div>
+      </div>
+
+      <div>
+        <div class="section-label">03. Merkkleuren</div>
+        <div class="color-list" id="color-list"></div>
+        <div class="field-row" style="margin-top:8px"><label for="col-name">Naam</label><input type="text" id="col-name" placeholder="Naam van kleur"></div>
+        <div class="field-row"><label for="col-hex-text">Hex</label><input type="color" id="col-hex" aria-label="Kleur kiezen via kleurenkiezer" value="#111111" oninput="hexToCmyk()"><input type="text" id="col-hex-text" value="#111111" oninput="syncHexText()"></div>
+        <div class="cmyk-grid">
+          <div><label for="col-c">C</label><input type="number" id="col-c" min="0" max="100" value="0"></div>
+          <div><label for="col-m">M</label><input type="number" id="col-m" min="0" max="100" value="0"></div>
+          <div><label for="col-y">Y</label><input type="number" id="col-y" min="0" max="100" value="0"></div>
+          <div><label for="col-k">K</label><input type="number" id="col-k" min="0" max="100" value="100"></div>
+        </div>
+        <div class="field-row"><label for="col-pantone">Pantone</label><input type="text" id="col-pantone" placeholder="Pantone-code (optioneel)"></div>
+        <div style="display:flex; gap:6px">
+          <button class="small-btn full" id="color-save-btn" onclick="saveColor()">Kleur toevoegen</button>
+          <button class="small-btn" id="color-cancel-btn" onclick="cancelColorEdit()" style="display:none">Annuleer</button>
+        </div>
+        <div class="hint-text" style="margin-top:6px">Geef de CMYK-waarden exact in zoals ze in het merkenboek staan. Deze waarden komen letterlijk in de kleurenkaart én in de CMYK EPS-bestanden terecht — geen schatting. Klik op een kleur hierboven om ze te bewerken.</div>
+      </div>
+
+      <div>
+        <div class="section-label">04. Kleurversies per asset</div>
+        <div id="variant-checks"></div>
+        <div class="hint-text">Elke aangevinkte versie hierboven wordt automatisch gegenereerd voor elk logo: elke merkkleur als volledige herkleuring, plus zwart en wit.</div>
+      </div>
+
+      <div>
+        <div class="section-label">05. Pakket</div>
+        <label class="check-row"><input type="checkbox" id="pkg-svg" checked onchange="updateEstimate()"> SVG (indien brondbestand vector is)</label>
+        <label class="check-row"><input type="checkbox" id="pkg-png" checked onchange="updateEstimate()"> PNG transparant (4 formaten)</label>
+        <label class="check-row"><input type="checkbox" id="pkg-jpg" checked onchange="updateEstimate()"> JPG (kleur × achtergrond)</label>
+        <label class="check-row"><input type="checkbox" id="pkg-webp" checked onchange="updateEstimate()"> WebP</label>
+        <div class="field-row" style="margin-top:4px">
+          <label style="width:auto; margin-right:4px">Achtergrond JPG</label>
+        </div>
+        <label class="check-row"><input type="checkbox" id="bg-white" checked onchange="updateEstimate()"> Wit</label>
+        <label class="check-row"><input type="checkbox" id="bg-black" onchange="updateEstimate()"> Zwart</label>
+        <hr class="divider" style="margin:10px 0">
+        <label class="check-row"><input type="checkbox" id="pkg-print" checked onchange="updateEstimate()"> Print-map (300 dpi PNG + CMYK EPS per vlakke kleurversie)</label>
+        <div class="hint-text">De EPS gebruikt de exacte CMYK-waarden uit stap 03 (geen RGB-schatting). Voor SVG- of PDF-geüploade logo's zijn dit ECHTE VECTORPADEN — oneindig schaalbaar (bij PDF wordt pdf.js gebruikt, vanaf een CDN, en enkel de eerste pagina). Voor logo's die enkel als PNG/JPG zijn geüpload valt de EPS terug op een hoge-resolutie rastermasker.</div>
+        <div class="estimate-text" id="estimate-text"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="canvas-area">
+      <div id="canvas-wrapper">
+        <button class="empty-hint" id="empty-hint" onclick="document.getElementById('logo-upload').click()">Upload een logo om te beginnen</button>
+        <div id="export-tree" aria-label="Voorbeeld van de mapstructuur in de export"></div>
+      </div>
+      <div id="status-text"></div>
+    </div>
+    <div id="copyright">© 2026 Een experiment van The Kind Kids · Want durven is goud.</div>
+  </div>
+
+</div>
+
+<script>
+let logos = [];        // {id, name, slug, role, order, type: 'svg'|'raster', img, svgText}
+let colors = [];       // {id, name, hex, c,m,y,k, pantone}
+let activeLogoId = null;
+let checkedVariants = new Set(['black', 'white']);
+let editingColorId = null;
+let clientName = '';
+let idCounter = 0;
+const PNG_SIZES = [256, 512, 1024, 2048];
+const PRINT_SIZE = 3000;
+
+function onClientNameChange(){
+  clientName = document.getElementById('client-name').value;
+  updateExportState();
+  updateEstimate();
+}
+
+function toggleSheet(){
+  document.getElementById('app').classList.toggle('sheet-open');
+  document.getElementById('sidebar').classList.toggle('open');
+}
+function slugify(name){
+  return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'logo';
+}
+function rolePart(role){
+  const cleaned = (role || '').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_');
+  return cleaned || 'Logo';
+}
+
+/* ── LOGO UPLOAD ── */
+function handleLogoUpload(input){
+  const files = Array.from(input.files || []);
+  files.forEach(file => {
+    const id = 'logo-' + (idCounter++);
+    const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const defaultRole = logos.length === 0 ? 'Primary Logo' : 'Logo Mark';
+    const finish = (src, svgText) => {
+      const img = new Image();
+      img.onload = () => {
+        logos.push({
+          id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
+          role: defaultRole, type: isSvg ? 'svg' : 'raster', img, svgText: svgText || null
+        });
+        if (!activeLogoId) activeLogoId = id;
+        renderLogoThumbs();
+        renderExportTree();
+        updateExportState();
+        updateEstimate();
+      };
+      img.onerror = () => alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG/PNG/JPG-bestand?');
+      img.src = src;
+    };
+    if (isPdf){
+      handlePdfUpload(file).then(({ img, pdfBytes, pageCount }) => {
+        logos.push({
+          id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
+          role: defaultRole, type: 'pdf', img, svgText: null, pdfBytes, pageCount
+        });
+        if (!activeLogoId) activeLogoId = id;
+        renderLogoThumbs(); renderExportTree(); updateExportState(); updateEstimate();
+      }).catch(err => {
+        alert('Kon "' + file.name + '" niet als PDF inlezen: ' + (err.message || err));
+      });
+    } else if (isSvg){
+      const textReader = new FileReader();
+      textReader.onload = e => {
+        const svgText = e.target.result;
+        const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
+        finish(dataUrl, svgText);
+      };
+      textReader.readAsText(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = e => finish(e.target.result, null);
+      reader.readAsDataURL(file);
+    }
+  });
+  input.value = '';
+}
+function renderLogoThumbs(){
+  const wrap = document.getElementById('logo-thumbs');
+  wrap.innerHTML = '';
+  logos.forEach(l => {
+    const t = document.createElement('div');
+    t.className = 'thumb-wrap';
+    t.innerHTML = `
+      <div class="thumb ${l.id === activeLogoId ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${l.id === activeLogoId}" aria-label="${l.name} selecteren (rol: ${l.role})" onclick="setActiveLogo('${l.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); setActiveLogo('${l.id}');}">
+        <img src="${l.img.src}" alt="Logo: ${l.name}">
+        <div class="thumb-role-badge">${l.role}</div>
+        <button class="thumb-remove" aria-label="${l.name} verwijderen" onclick="event.stopPropagation(); removeLogo('${l.id}')">×</button>
+      </div>
+      <div class="thumb-label">${l.name}</div>`;
+    wrap.appendChild(t);
+  });
+  if (logos.length){
+    const addTile = document.createElement('div');
+    addTile.className = 'thumb-wrap';
+    addTile.innerHTML = `
+      <button class="thumb thumb-add" aria-label="Nog een logo toevoegen" onclick="document.getElementById('logo-upload').click()">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="#111" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <div class="thumb-label" style="opacity:0.6">Toevoegen</div>`;
+    wrap.appendChild(addTile);
+  }
+  const roleControls = document.getElementById('logo-role-controls');
+  const active = logos.find(l => l.id === activeLogoId);
+  if (active){
+    roleControls.style.display = 'block';
+    document.getElementById('logo-role').value = active.role;
+    document.getElementById('logo-role-active-name').textContent = active.name;
+  } else {
+    roleControls.style.display = 'none';
+  }
+}
+function setActiveLogo(id){ activeLogoId = id; renderLogoThumbs(); renderExportTree(); }
+function setActiveLogoRole(role){
+  const active = logos.find(l => l.id === activeLogoId);
+  if (!active) return;
+  active.role = role;
+  const thumbs = document.querySelectorAll('#logo-thumbs .thumb-wrap');
+  const idx = logos.indexOf(active);
+  if (thumbs[idx]) thumbs[idx].querySelector('.thumb-role-badge').textContent = role;
+  renderExportTree();
+}
+function removeLogo(id){
+  logos = logos.filter(l => l.id !== id);
+  if (activeLogoId === id) activeLogoId = logos.length ? logos[0].id : null;
+  renderLogoThumbs(); renderExportTree(); updateExportState(); updateEstimate();
+}
+
+/* ── KLEUREN ── */
+function syncHexText(){ document.getElementById('col-hex').value = document.getElementById('col-hex-text').value; }
+function hexToCmyk(){ document.getElementById('col-hex-text').value = document.getElementById('col-hex').value; }
+function saveColor(){
+  const name = document.getElementById('col-name').value.trim() || 'Kleur ' + (colors.length + 1);
+  const hex = document.getElementById('col-hex-text').value.trim();
+  const c = document.getElementById('col-c').value, m = document.getElementById('col-m').value,
+        y = document.getElementById('col-y').value, k = document.getElementById('col-k').value;
+  const pantone = document.getElementById('col-pantone').value.trim();
+  if (editingColorId){
+    const existing = colors.find(col => col.id === editingColorId);
+    if (existing){ Object.assign(existing, { name, hex, c, m, y, k, pantone }); }
+    editingColorId = null;
+  } else {
+    const id = 'color-' + (idCounter++);
+    colors.push({ id, name, hex, c, m, y, k, pantone });
+    checkedVariants.add('brand-' + id);
+  }
+  resetColorForm();
+  renderColorList();
+  renderVariantChecks();
+  updateEstimate();
+}
+function editColor(id){
+  const col = colors.find(c => c.id === id);
+  if (!col) return;
+  editingColorId = id;
+  document.getElementById('col-name').value = col.name;
+  document.getElementById('col-hex').value = col.hex;
+  document.getElementById('col-hex-text').value = col.hex;
+  document.getElementById('col-c').value = col.c;
+  document.getElementById('col-m').value = col.m;
+  document.getElementById('col-y').value = col.y;
+  document.getElementById('col-k').value = col.k;
+  document.getElementById('col-pantone').value = col.pantone || '';
+  document.getElementById('color-save-btn').textContent = 'Kleur bijwerken';
+  document.getElementById('color-cancel-btn').style.display = 'inline-block';
+  renderColorList();
+}
+function cancelColorEdit(){
+  editingColorId = null;
+  resetColorForm();
+  renderColorList();
+}
+function resetColorForm(){
+  document.getElementById('col-name').value = '';
+  document.getElementById('col-hex').value = '#111111';
+  document.getElementById('col-hex-text').value = '#111111';
+  document.getElementById('col-c').value = 0;
+  document.getElementById('col-m').value = 0;
+  document.getElementById('col-y').value = 0;
+  document.getElementById('col-k').value = 100;
+  document.getElementById('col-pantone').value = '';
+  document.getElementById('color-save-btn').textContent = colors.length ? 'Meer kleuren toevoegen' : 'Kleur toevoegen';
+  document.getElementById('color-cancel-btn').style.display = 'none';
+}
+function removeColor(id){
+  colors = colors.filter(c => c.id !== id);
+  checkedVariants.delete('brand-' + id);
+  if (editingColorId === id) cancelColorEdit();
+  renderColorList();
+  renderVariantChecks();
+  updateEstimate();
+}
+function renderColorList(){
+  const wrap = document.getElementById('color-list');
+  wrap.innerHTML = '';
+  colors.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'color-item' + (c.id === editingColorId ? ' active' : '');
+    row.style.cursor = 'pointer';
+    if (c.id === editingColorId) row.style.boxShadow = '0 0 0 1.5px #111';
+    row.innerHTML = `
+      <div class="color-dot" style="background:${c.hex}"></div>
+      <div class="color-meta">
+        <div class="color-name">${c.name}</div>
+        <div class="color-vals">${c.hex.toUpperCase()} · C${c.c} M${c.m} Y${c.y} K${c.k}${c.pantone ? ' · ' + c.pantone : ''}</div>
+      </div>
+      <div class="color-actions">
+        <button class="color-edit" title="Bewerken" aria-label="${c.name} bewerken">
+          <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M11.3 1.7a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1l-8 8-3.3.9.9-3.3 8-8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            <path d="M9.8 3.2l3 3" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+        </button>
+        <button class="color-remove" title="Verwijderen" aria-label="${c.name} verwijderen">×</button>
+      </div>`;
+    row.querySelector('.color-meta').addEventListener('click', () => editColor(c.id));
+    row.querySelector('.color-dot').addEventListener('click', () => editColor(c.id));
+    row.querySelector('.color-edit').addEventListener('click', (e) => { e.stopPropagation(); editColor(c.id); });
+    row.querySelector('.color-remove').addEventListener('click', (e) => { e.stopPropagation(); removeColor(c.id); });
+    wrap.appendChild(row);
+  });
+}
+
+/* ── VARIANTEN (dynamisch: origineel + elke merkkleur + zwart/wit) ── */
+function variantList(){
+  const list = [];
+  colors.forEach(c => list.push({ key: 'brand-' + c.id, label: c.name, hex: c.hex, dot: c.hex }));
+  list.push({ key: 'black', label: 'Zwart', hex: '#000000', dot: '#000000' });
+  list.push({ key: 'white', label: 'Wit', hex: '#ffffff', dot: '#ffffff' });
+  return list;
+}
+function renderVariantChecks(){
+  const wrap = document.getElementById('variant-checks');
+  wrap.innerHTML = '';
+  variantList().forEach(v => {
+    const row = document.createElement('label');
+    row.className = 'check-row';
+    const dot = v.dot ? `<span class="swatch-dot" style="background:${v.dot}"></span>` : '';
+    row.innerHTML = `<input type="checkbox" ${checkedVariants.has(v.key) ? 'checked' : ''} onchange="toggleVariant('${v.key}', this.checked)">${dot}${v.label}`;
+    wrap.appendChild(row);
+  });
+}
+function toggleVariant(key, checked){
+  if (checked) checkedVariants.add(key); else checkedVariants.delete(key);
+  renderExportTree();
+  updateEstimate();
+}
+
+/* ── PREVIEW & RECOLORING ── */
+function drawVariantToCanvas(img, targetCanvas, options){
+  const size = options.size;
+  targetCanvas.width = size; targetCanvas.height = size;
+  const ctx = targetCanvas.getContext('2d');
+  ctx.clearRect(0,0,size,size);
+  if (options.bgColor){ ctx.fillStyle = options.bgColor; ctx.fillRect(0,0,size,size); }
+  const pad = size * (options.padRatio ?? 0.1);
+  const maxW = size - pad*2, maxH = size - pad*2;
+  const ratio = Math.min(maxW / img.width, maxH / img.height);
+  const w = img.width * ratio, h = img.height * ratio;
+  const x = (size - w) / 2, y = (size - h) / 2;
+  ctx.drawImage(img, x, y, w, h);
+  if (options.variantColor){
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = options.variantColor;
+    ctx.fillRect(0,0,size,size);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  return targetCanvas;
+}
+/* ── Export-boomstructuur — toont live wat er in de ZIP komt, i.p.v. een render van het logo.
+   Bouwt exact dezelfde mapnamen/bestandsnamen als exportZip() hieronder, maar puur als tekst
+   (geen canvas/blob-werk), dus goedkoop genoeg om bij elke wijziging opnieuw te tekenen. */
+function buildExportTree(){
+  if (!logos.length) return null;
+  const clientSlug = slugify((clientName || '').trim());
+  const { variants } = computeCounts();
+  const doSvg = document.getElementById('pkg-svg').checked;
+  const doPng = document.getElementById('pkg-png').checked;
+  const doJpg = document.getElementById('pkg-jpg').checked;
+  const doWebp = document.getElementById('pkg-webp').checked;
+  const doPrint = document.getElementById('pkg-print').checked;
+  const jpgBgs = [];
+  if (document.getElementById('bg-white').checked) jpgBgs.push('wit');
+  if (document.getElementById('bg-black').checked) jpgBgs.push('zwart');
+  if (!jpgBgs.length) jpgBgs.push('wit');
+
+  const root = { name: `${clientSlug || 'klant'}-logo-asset-pack.zip`, type: 'zip', children: [] };
+  const sortedLogos = logos;
+  for (let i = 0; i < sortedLogos.length; i++){
+    const logo = sortedLogos[i];
+    const folderName = String(i + 1).padStart(2, '0') + '_' + rolePart(logo.role);
+    const nameBase = `${clientSlug}-${slugify(logo.role)}`;
+    const logoFolder = { name: folderName, type: 'folder', children: [] };
+
+    if (doSvg || doPng || doJpg || doWebp){
+      const digital = { name: '01_RGB_Digital', type: 'folder', children: [] };
+      if (doSvg && logo.type === 'svg' && logo.svgText){
+        digital.children.push({ name: '01_SVG', type: 'folder',
+          children: variants.map(v => ({ name: `${nameBase}-${slugify(v.label)}-digitaal.svg`, type: 'file' })) });
+      }
+      if (doPng){
+        const files = [];
+        for (const v of variants) for (const size of PNG_SIZES) files.push({ name: `${nameBase}-${slugify(v.label)}-digitaal-${String(size).padStart(4,"0")}px.png`, type: 'file' });
+        digital.children.push({ name: '02_PNG_Transparent', type: 'folder', children: files });
+      }
+      if (doJpg){
+        const files = [];
+        for (const v of variants) for (const bg of jpgBgs) files.push({ name: `${nameBase}-${slugify(v.label)}-digitaal-op-${bg}.jpg`, type: 'file' });
+        digital.children.push({ name: '03_JPG', type: 'folder', children: files });
+      }
+      if (doWebp){
+        digital.children.push({ name: '04_WEBP', type: 'folder',
+          children: variants.map(v => ({ name: `${nameBase}-${slugify(v.label)}-digitaal.webp`, type: 'file' })) });
+      }
+      if (digital.children.length) logoFolder.children.push(digital);
+    }
+
+    if (doPrint){
+      const printFiles = [];
+      for (const v of variants){
+        printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print-300dpi.png`, type: 'file' });
+        if (flatCmykForVariant(v)) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.eps`, type: 'file' });
+      }
+      if (logo.type === 'svg' && logo.svgText) printFiles.push({ name: `${nameBase}-print-vector-bron.svg`, type: 'file' });
+      else if (logo.type === 'pdf' && logo.pdfBytes) printFiles.push({ name: `${nameBase}-print-bron.pdf`, type: 'file' });
+      if (printFiles.length) logoFolder.children.push({ name: '02_CMYK_Print', type: 'folder', children: printFiles });
+    }
+
+    root.children.push(logoFolder);
+  }
+  return root;
+}
+
+const FOLDER_ICON = `<svg class="tree-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1.5 3.5h4.5l1.3 1.7h7.2v7.3h-13z" stroke="#111" stroke-width="1.1" stroke-linejoin="round"/></svg>`;
+const ZIP_ICON = `<svg class="tree-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="12" height="9.5" rx="1" stroke="#111" stroke-width="1.1"/><path d="M2.5 4L4 1.8h8L13.5 4" stroke="#111" stroke-width="1.1" stroke-linejoin="round"/><path d="M8 4v9.5" stroke="#111" stroke-width="0.8" stroke-dasharray="1.4 1.4"/></svg>`;
+const FILE_ICON = `<svg class="tree-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 1.5h5.5l3.5 3.5v9.5h-9z" stroke="#111" stroke-width="1" stroke-linejoin="round"/><path d="M9 1.5V5h3.5" stroke="#111" stroke-width="1" stroke-linejoin="round"/></svg>`;
+
+function renderTreeNode(node, depth){
+  const indent = depth * 16;
+  if (node.type === 'file'){
+    return `<div class="tree-row tree-file" style="padding-left:${indent}px">${FILE_ICON}<span>${node.name}</span></div>`;
+  }
+  const icon = node.type === 'zip' ? ZIP_ICON : FOLDER_ICON;
+  const rowClass = node.type === 'zip' ? 'tree-row tree-zip' : 'tree-row tree-folder';
+  let childrenHtml = '';
+  const kids = node.children || [];
+  const folderKids = kids.filter(k => k.type !== 'file');
+  const fileKids = kids.filter(k => k.type === 'file');
+  folderKids.forEach(k => { childrenHtml += renderTreeNode(k, depth + 1); });
+  const THRESHOLD = 6;
+  if (fileKids.length > THRESHOLD){
+    const shown = fileKids.slice(0, 4);
+    const rest = fileKids.slice(4);
+    const restId = 'tree-more-' + Math.random().toString(36).slice(2, 9);
+    shown.forEach(k => { childrenHtml += renderTreeNode(k, depth + 1); });
+    childrenHtml += `<div class="tree-row" style="padding-left:${(depth+1)*16}px">` +
+      `<button class="tree-toggle" data-target="${restId}">+ ${rest.length} meer tonen</button></div>`;
+    childrenHtml += `<div id="${restId}" style="display:none">${rest.map(k => renderTreeNode(k, depth + 1)).join('')}</div>`;
+  } else {
+    fileKids.forEach(k => { childrenHtml += renderTreeNode(k, depth + 1); });
+  }
+  return `<div class="${rowClass}" style="padding-left:${indent}px">${icon}<span>${node.name}</span></div>${childrenHtml}`;
+}
+
+function renderExportTree(){
+  const container = document.getElementById('export-tree');
+  const hint = document.getElementById('empty-hint');
+  if (!container) return;
+  const tree = buildExportTree();
+  if (!tree){
+    container.innerHTML = '';
+    if (hint) hint.style.display = 'block';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+  container.innerHTML = renderTreeNode(tree, 0);
+}
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.tree-toggle');
+  if (!btn) return;
+  const target = document.getElementById(btn.dataset.target);
+  if (!target) return;
+  const open = target.style.display !== 'none';
+  target.style.display = open ? 'none' : 'block';
+  const hiddenCount = target.children.length;
+  btn.textContent = open ? `+ ${hiddenCount} meer tonen` : `− Toon minder`;
+});
+
+/* ── EPS: echte VECTOR-conversie voor SVG-bronnen ──
+   Zet de vectorpaden van een geüpload SVG-logo rechtstreeks om naar PostScript-paden
+   (moveto/lineto/curveto), gevuld met de exacte CMYK-waarde uit stap 02. Geen rasterstap,
+   dus oneindig schaalbaar — net als een "echt" vectorbestand uit Illustrator.
+   Ondersteunt: path (M/L/H/V/C/S/Q/T/A/Z), rect (incl. afgeronde hoeken), circle, ellipse,
+   polygon, polyline, geneste <g>-transforms, en fill:none-uitsparingen (ook via CSS-klasse
+   zoals Illustrator-exports die vaak gebruiken). Niet ondersteund: tekst (converteer tekst
+   eerst naar paden in Illustrator), strokes, gradients/patronen/clip-paths/<use>. */
+function matIdentity(){ return [1,0,0,1,0,0]; }
+function matMultiply(A,B){
+  const [a1,b1,c1,d1,e1,f1] = A, [a2,b2,c2,d2,e2,f2] = B;
+  return [ a1*a2+c1*b2, b1*a2+d1*b2, a1*c2+c1*d2, b1*c2+d1*d2, a1*e2+c1*f2+e1, b1*e2+d1*f2+f1 ];
+}
+function matApply(M,x,y){ return [M[0]*x+M[2]*y+M[4], M[1]*x+M[3]*y+M[5]]; }
+function matTranslate(tx,ty){ return [1,0,0,1,tx,ty||0]; }
+function matScale(sx,sy){ return [sx,0,0,(sy===undefined?sx:sy),0,0]; }
+function matRotate(deg,cx,cy){
+  const a=deg*Math.PI/180, cos=Math.cos(a), sin=Math.sin(a), R=[cos,sin,-sin,cos,0,0];
+  if (cx!==undefined) return matMultiply(matMultiply(matTranslate(cx,cy),R), matTranslate(-cx,-cy));
+  return R;
+}
+function matSkewX(deg){ return [1,0,Math.tan(deg*Math.PI/180),1,0,0]; }
+function matSkewY(deg){ return [1,Math.tan(deg*Math.PI/180),0,1,0,0]; }
+function parseTransformAttr(str){
+  let M = matIdentity();
+  if (!str) return M;
+  const re = /(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g;
+  let m;
+  while ((m = re.exec(str))){
+    const fn = m[1];
+    const args = m[2].trim().split(/[\s,]+/).filter(s=>s.length).map(Number);
+    let T;
+    if (fn==='matrix') T = args;
+    else if (fn==='translate') T = matTranslate(args[0],args[1]);
+    else if (fn==='scale') T = matScale(args[0],args[1]);
+    else if (fn==='rotate') T = matRotate(args[0],args[1],args[2]);
+    else if (fn==='skewX') T = matSkewX(args[0]);
+    else if (fn==='skewY') T = matSkewY(args[0]);
+    if (T) M = matMultiply(M, T);
+  }
+  return M;
+}
+function tokenizePathData(d){
+  const tokens = []; let i=0; const n=d.length;
+  const isCmd = c => 'MmLlHhVvCcSsQqTtAaZz'.indexOf(c) !== -1;
+  while (i<n){
+    const c = d[i];
+    if (/\s|,/.test(c)){ i++; continue; }
+    if (isCmd(c)){ tokens.push({cmd:c}); i++; continue; }
+    const start=i;
+    if (c==='-'||c==='+') i++;
+    let sawDot=false;
+    while (i<n && (/\d/.test(d[i]) || (d[i]==='.' && !sawDot))){ if (d[i]==='.') sawDot=true; i++; }
+    if (i<n && (d[i]==='e'||d[i]==='E')){ i++; if (d[i]==='-'||d[i]==='+') i++; while (i<n && /\d/.test(d[i])) i++; }
+    if (i===start){ i++; continue; }
+    tokens.push({num: parseFloat(d.slice(start,i))});
+  }
+  return tokens;
+}
+function arcToBeziers(x1,y1,rx,ry,phiDeg,largeArc,sweep,x2,y2){
+  if (rx===0||ry===0) return [[x1,y1,x2,y2,x2,y2]];
+  rx=Math.abs(rx); ry=Math.abs(ry);
+  const phi=phiDeg*Math.PI/180, cosPhi=Math.cos(phi), sinPhi=Math.sin(phi);
+  const dx2=(x1-x2)/2, dy2=(y1-y2)/2;
+  const x1p=cosPhi*dx2+sinPhi*dy2, y1p=-sinPhi*dx2+cosPhi*dy2;
+  let rxs=rx*rx, rys=ry*ry;
+  const x1ps=x1p*x1p, y1ps=y1p*y1p;
+  const lambda = x1ps/rxs + y1ps/rys;
+  if (lambda>1){ const s=Math.sqrt(lambda); rx*=s; ry*=s; rxs=rx*rx; rys=ry*ry; }
+  let sign = (largeArc!==sweep) ? 1 : -1;
+  let num = rxs*rys - rxs*y1ps - rys*x1ps;
+  if (num<0) num=0;
+  const co = sign*Math.sqrt(num/(rxs*y1ps+rys*x1ps || 1e-9));
+  const cxp = co*(rx*y1p/ry), cyp = co*(-ry*x1p/rx);
+  const cx = cosPhi*cxp-sinPhi*cyp+(x1+x2)/2, cy = sinPhi*cxp+cosPhi*cyp+(y1+y2)/2;
+  const angle=(ux,uy,vx,vy)=>{ const dot=ux*vx+uy*vy, len=Math.sqrt((ux*ux+uy*uy)*(vx*vx+vy*vy));
+    let a=Math.acos(Math.max(-1,Math.min(1,dot/len))); if (ux*vy-uy*vx<0) a=-a; return a; };
+  const theta1 = angle(1,0,(x1p-cxp)/rx,(y1p-cyp)/ry);
+  let dTheta = angle((x1p-cxp)/rx,(y1p-cyp)/ry,(-x1p-cxp)/rx,(-y1p-cyp)/ry);
+  if (!sweep && dTheta>0) dTheta -= 2*Math.PI;
+  if (sweep && dTheta<0) dTheta += 2*Math.PI;
+  const segs = Math.ceil(Math.abs(dTheta)/(Math.PI/2+0.001));
+  const delta = dTheta/segs, t = 4/3*Math.tan(delta/4);
+  const beziers = []; let theta = theta1;
+  for (let s=0; s<segs; s++){
+    const theta2 = theta+delta;
+    const cosT1=Math.cos(theta), sinT1=Math.sin(theta), cosT2=Math.cos(theta2), sinT2=Math.sin(theta2);
+    const e1x=cx+rx*cosPhi*cosT1-ry*sinPhi*sinT1, e1y=cy+rx*sinPhi*cosT1+ry*cosPhi*sinT1;
+    const e2x=cx+rx*cosPhi*cosT2-ry*sinPhi*sinT2, e2y=cy+rx*sinPhi*cosT2+ry*cosPhi*sinT2;
+    const dx1=-rx*cosPhi*sinT1-ry*sinPhi*cosT1, dy1=-rx*sinPhi*sinT1+ry*cosPhi*cosT1;
+    const dx2=-rx*cosPhi*sinT2-ry*sinPhi*cosT2, dy2=-rx*sinPhi*sinT2+ry*cosPhi*cosT2;
+    beziers.push([e1x+t*dx1, e1y+t*dy1, e2x-t*dx2, e2y-t*dy2, e2x, e2y]);
+    theta = theta2;
+  }
+  return beziers;
+}
+function parsePathData(d){
+  const tokens = tokenizePathData(d); let i=0;
+  const subpaths = []; let cur=null; let cx=0,cy=0,startX=0,startY=0,lastCmd=null,lastCtrl=null;
+  const nextNum = () => tokens[i++].num;
+  const pushSeg = (seg) => { if (!cur){ cur=[]; subpaths.push(cur); } cur.push(seg); };
+  while (i < tokens.length){
+    let tok = tokens[i]; let cmd;
+    if (tok.cmd){ cmd = tok.cmd; i++; } else { cmd = lastCmd; }
+    if (!cmd) break;
+    const rel = cmd === cmd.toLowerCase(); const C = cmd.toUpperCase();
+    if (C==='M'){
+      const x=nextNum(), y=nextNum(); cx=rel?cx+x:x; cy=rel?cy+y:y; startX=cx; startY=cy;
+      cur=[]; subpaths.push(cur); cur.push({type:'M',x:cx,y:cy});
+      lastCmd = rel?'l':'L'; lastCtrl=null;
+    } else if (C==='L'){
+      const x=nextNum(), y=nextNum(); cx=rel?cx+x:x; cy=rel?cy+y:y;
+      pushSeg({type:'L',x:cx,y:cy}); lastCmd=cmd; lastCtrl=null;
+    } else if (C==='H'){
+      const x=nextNum(); cx=rel?cx+x:x; pushSeg({type:'L',x:cx,y:cy}); lastCmd=cmd; lastCtrl=null;
+    } else if (C==='V'){
+      const y=nextNum(); cy=rel?cy+y:y; pushSeg({type:'L',x:cx,y:cy}); lastCmd=cmd; lastCtrl=null;
+    } else if (C==='C'){
+      const x1=nextNum(),y1=nextNum(),x2=nextNum(),y2=nextNum(),x=nextNum(),y=nextNum();
+      const ax1=rel?cx+x1:x1, ay1=rel?cy+y1:y1, ax2=rel?cx+x2:x2, ay2=rel?cy+y2:y2, ax=rel?cx+x:x, ay=rel?cy+y:y;
+      pushSeg({type:'C',x1:ax1,y1:ay1,x2:ax2,y2:ay2,x:ax,y:ay});
+      lastCtrl=[ax2,ay2]; cx=ax; cy=ay; lastCmd=cmd;
+    } else if (C==='S'){
+      const x2=nextNum(),y2=nextNum(),x=nextNum(),y=nextNum();
+      const ax2=rel?cx+x2:x2, ay2=rel?cy+y2:y2, ax=rel?cx+x:x, ay=rel?cy+y:y;
+      const ax1=lastCtrl?2*cx-lastCtrl[0]:cx, ay1=lastCtrl?2*cy-lastCtrl[1]:cy;
+      pushSeg({type:'C',x1:ax1,y1:ay1,x2:ax2,y2:ay2,x:ax,y:ay});
+      lastCtrl=[ax2,ay2]; cx=ax; cy=ay; lastCmd=cmd;
+    } else if (C==='Q'){
+      const x1=nextNum(),y1=nextNum(),x=nextNum(),y=nextNum();
+      const ax1=rel?cx+x1:x1, ay1=rel?cy+y1:y1, ax=rel?cx+x:x, ay=rel?cy+y:y;
+      const c1x=cx+2/3*(ax1-cx), c1y=cy+2/3*(ay1-cy), c2x=ax+2/3*(ax1-ax), c2y=ay+2/3*(ay1-ay);
+      pushSeg({type:'C',x1:c1x,y1:c1y,x2:c2x,y2:c2y,x:ax,y:ay});
+      lastCtrl=[ax1,ay1]; cx=ax; cy=ay; lastCmd=cmd;
+    } else if (C==='T'){
+      const x=nextNum(),y=nextNum(); const ax=rel?cx+x:x, ay=rel?cy+y:y;
+      const ax1=lastCtrl?2*cx-lastCtrl[0]:cx, ay1=lastCtrl?2*cy-lastCtrl[1]:cy;
+      const c1x=cx+2/3*(ax1-cx), c1y=cy+2/3*(ay1-cy), c2x=ax+2/3*(ax1-ax), c2y=ay+2/3*(ay1-ay);
+      pushSeg({type:'C',x1:c1x,y1:c1y,x2:c2x,y2:c2y,x:ax,y:ay});
+      lastCtrl=[ax1,ay1]; cx=ax; cy=ay; lastCmd=cmd;
+    } else if (C==='A'){
+      const rx=nextNum(),ry=nextNum(),rot=nextNum(); const largeArc=!!nextNum(), sweep=!!nextNum();
+      const x=nextNum(),y=nextNum(); const ax=rel?cx+x:x, ay=rel?cy+y:y;
+      for (const b of arcToBeziers(cx,cy,rx,ry,rot,largeArc,sweep,ax,ay)) pushSeg({type:'C',x1:b[0],y1:b[1],x2:b[2],y2:b[3],x:b[4],y:b[5]});
+      cx=ax; cy=ay; lastCmd=cmd; lastCtrl=null;
+    } else if (C==='Z'){
+      pushSeg({type:'Z'}); cx=startX; cy=startY; lastCmd=cmd; lastCtrl=null;
+    } else { i++; }
+  }
+  return subpaths;
+}
+function svgNum(v, def){ const n = parseFloat(v); return isNaN(n) ? (def===undefined?0:def) : n; }
+function rectToSubpaths(el){
+  const x=svgNum(el.getAttribute('x'),0), y=svgNum(el.getAttribute('y'),0);
+  const w=svgNum(el.getAttribute('width'),0), h=svgNum(el.getAttribute('height'),0);
+  let rx=el.getAttribute('rx'), ry=el.getAttribute('ry');
+  rx = rx===null?null:svgNum(rx); ry = ry===null?null:svgNum(ry);
+  if (rx===null && ry!==null) rx=ry;
+  if (ry===null && rx!==null) ry=rx;
+  if (!rx) rx=0; if (!ry) ry=0;
+  rx=Math.min(rx,w/2); ry=Math.min(ry,h/2);
+  if (w<=0||h<=0) return [];
+  if (!rx && !ry) return [[{type:'M',x,y},{type:'L',x:x+w,y},{type:'L',x:x+w,y:y+h},{type:'L',x,y:y+h},{type:'Z'}]];
+  const k=0.5522847498;
+  return [[
+    {type:'M',x:x+rx,y}, {type:'L',x:x+w-rx,y},
+    {type:'C',x1:x+w-rx+k*rx,y1:y,x2:x+w,y2:y+ry-k*ry,x:x+w,y:y+ry},
+    {type:'L',x:x+w,y:y+h-ry},
+    {type:'C',x1:x+w,y1:y+h-ry+k*ry,x2:x+w-rx+k*rx,y2:y+h,x:x+w-rx,y:y+h},
+    {type:'L',x:x+rx,y:y+h},
+    {type:'C',x1:x+rx-k*rx,y1:y+h,x2:x,y2:y+h-ry+k*ry,x:x,y:y+h-ry},
+    {type:'L',x,y:y+ry},
+    {type:'C',x1:x,y1:y+ry-k*ry,x2:x+rx-k*rx,y2:y,x:x+rx,y},
+    {type:'Z'}
+  ]];
+}
+function ellipseSubpath(cx,cy,rx,ry){
+  if (rx<=0||ry<=0) return [];
+  const k=0.5522847498;
+  return [[
+    {type:'M',x:cx+rx,y:cy},
+    {type:'C',x1:cx+rx,y1:cy+k*ry,x2:cx+k*rx,y2:cy+ry,x:cx,y:cy+ry},
+    {type:'C',x1:cx-k*rx,y1:cy+ry,x2:cx-rx,y2:cy+k*ry,x:cx-rx,y:cy},
+    {type:'C',x1:cx-rx,y1:cy-k*ry,x2:cx-k*rx,y2:cy-ry,x:cx,y:cy-ry},
+    {type:'C',x1:cx+k*rx,y1:cy-ry,x2:cx+rx,y2:cy-k*ry,x:cx+rx,y:cy},
+    {type:'Z'}
+  ]];
+}
+function pointsToSubpath(pointsStr, close){
+  const nums = pointsStr.trim().split(/[\s,]+/).map(Number).filter(v=>!isNaN(v));
+  if (nums.length<4) return [];
+  const seg=[{type:'M',x:nums[0],y:nums[1]}];
+  for (let i=2;i+1<nums.length;i+=2) seg.push({type:'L',x:nums[i],y:nums[i+1]});
+  if (close) seg.push({type:'Z'});
+  return [seg];
+}
+function shapeSubpaths(el){
+  const tag = el.tagName.toLowerCase();
+  if (tag==='path') return parsePathData(el.getAttribute('d') || '');
+  if (tag==='rect') return rectToSubpaths(el);
+  if (tag==='circle') return ellipseSubpath(svgNum(el.getAttribute('cx')),svgNum(el.getAttribute('cy')),svgNum(el.getAttribute('r')),svgNum(el.getAttribute('r')));
+  if (tag==='ellipse') return ellipseSubpath(svgNum(el.getAttribute('cx')),svgNum(el.getAttribute('cy')),svgNum(el.getAttribute('rx')),svgNum(el.getAttribute('ry')));
+  if (tag==='polygon') return pointsToSubpath(el.getAttribute('points')||'', true);
+  if (tag==='polyline') return pointsToSubpath(el.getAttribute('points')||'', false);
+  return null;
+}
+function collectNoneClasses(svgEl){
+  const noneClasses = new Set();
+  const styleEls = svgEl.querySelectorAll ? svgEl.querySelectorAll('style') : [];
+  for (const styleEl of styleEls){
+    const css = styleEl.textContent || '';
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g; let m;
+    while ((m = ruleRe.exec(css))){
+      const selectors = m[1].split(',').map(s=>s.trim());
+      if (/fill\s*:\s*none/.test(m[2])) for (const sel of selectors) if (sel.startsWith('.')) noneClasses.add(sel.slice(1));
+    }
+  }
+  return noneClasses;
+}
+function isFillableSvgEl(el, noneClasses){
+  const fill = el.getAttribute('fill');
+  const style = el.getAttribute('style') || '';
+  if (fill === 'none') return false;
+  if (/fill\s*:\s*none/.test(style)) return false;
+  if (fill === null && noneClasses && noneClasses.size){
+    const cls = (el.getAttribute('class')||'').split(/\s+/).filter(Boolean);
+    if (cls.some(c => noneClasses.has(c))) return false;
+  }
+  if (el.getAttribute('display') === 'none') return false;
+  if (/display\s*:\s*none/.test(style)) return false;
+  const fo = el.getAttribute('fill-opacity'); if (fo!==null && parseFloat(fo)===0) return false;
+  const op = el.getAttribute('opacity'); if (op!==null && parseFloat(op)===0) return false;
+  return true;
+}
+const SVG_DRAWABLE = new Set(['path','rect','circle','ellipse','polygon','polyline']);
+const SVG_SKIP = new Set(['defs','style','title','desc','metadata','clippath','mask','symbol','filter','lineargradient','radialgradient']);
+function collectPaintOps(root, M0){
+  const ops = []; const noneClasses = collectNoneClasses(root);
+  function walk(el, M){
+    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+    if (SVG_SKIP.has(tag)) return;
+    if (el.getAttribute && el.getAttribute('display') === 'none') return;
+    const t = el.getAttribute ? el.getAttribute('transform') : null;
+    const M2 = t ? matMultiply(M, parseTransformAttr(t)) : M;
+    if (SVG_DRAWABLE.has(tag)){
+      if (isFillableSvgEl(el, noneClasses)){
+        const subpaths = shapeSubpaths(el);
+        if (subpaths && subpaths.length) ops.push({ subpaths, matrix: M2, fillRule: (el.getAttribute('fill-rule')==='evenodd') ? 'evenodd' : 'nonzero' });
+      }
+      return;
+    }
+    for (const child of Array.from(el.children || [])) walk(child, M2);
+  }
+  walk(root, M0);
+  return ops;
+}
+function psNum(n){ return (Math.round(n*1000)/1000).toString(); }
+function buildVectorEPS(svgText, cmyk, title, targetLongSidePt){
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+  if (doc.querySelector('parsererror')) throw new Error('SVG kon niet gelezen worden');
+  const svgEl = doc.documentElement;
+  const vb = svgEl.getAttribute('viewBox');
+  let minX=0, minY=0, vbW, vbH;
+  if (vb){ const p = vb.trim().split(/[\s,]+/).map(Number); [minX,minY,vbW,vbH] = p; }
+  let w = svgEl.getAttribute('width'), h = svgEl.getAttribute('height');
+  w = w ? parseFloat(w) : undefined; h = h ? parseFloat(h) : undefined;
+  if (!vbW){ vbW = w || 100; vbH = h || 100; }
+  if (!vbW || !vbH) throw new Error('SVG heeft geen bruikbare afmetingen');
+
+  const target = targetLongSidePt || 720;
+  const S = vbW >= vbH ? target/vbW : target/vbH;
+  const outW = vbW*S, outH = vbH*S;
+  const M0 = [S, 0, 0, -S, -S*minX, S*minY+outH];
+  const ops = collectPaintOps(svgEl, M0);
+  if (!ops.length) throw new Error('Geen vulbare vormen gevonden in dit SVG-bestand');
+
+  const psLines = [];
+  for (const op of ops){
+    for (const sub of op.subpaths){
+      for (const seg of sub){
+        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} moveto`); }
+        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} lineto`); }
+        else if (seg.type==='C'){
+          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
+          psLines.push(`${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} curveto`);
+        } else if (seg.type==='Z'){ psLines.push('closepath'); }
+      }
+    }
+    psLines.push(op.fillRule==='evenodd' ? 'eofill' : 'fill');
+  }
+  const [c,m,ye,k] = cmyk;
+  const wPt = Math.round(outW), hPt = Math.round(outH);
+  return `%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 ${wPt} ${hPt}
+%%HiResBoundingBox: 0 0 ${psNum(outW)} ${psNum(outH)}
+%%Creator: TKK Logo Assets Generator
+%%Title: (${title})
+%%EndComments
+gsave
+${c} ${m} ${ye} ${k} setcmykcolor
+${psLines.join('\n')}
+grestore
+%%EOF
+`;
+}
+
+/* ── PDF: laden via pdf.js (Mozilla), voor zowel voorbeeld/raster-export als echte vectorpaden ──
+   pdf.js wordt pas ingeladen (via dynamic import vanaf een CDN) zodra iemand echt een PDF
+   uploadt — geen impact op tools die enkel SVG/PNG gebruiken. We gebruiken twee dingen van
+   pdf.js: (1) de pagina naar een canvas renderen, voor voorbeeld en de digitale PNG/JPG/WebP-
+   exports, net als bij een PNG/JPG-bron; (2) de "operator list" van de pagina — de al-
+   uitgepakte tekencommando's vóór ze naar canvas gerenderd worden — om de echte vectorpaden
+   te lezen voor de print-EPS, op dezelfde manier als bij een SVG-bron. Enkel de eerste pagina
+   wordt gebruikt. Tekst, afbeeldingen, verlopen en clip-paths worden genegeerd (zelfde
+   beperking als bij SVG) — converteer tekst dus vooraf naar paden/outlines. */
+const PDFJS_VERSION = '6.2.108';
+const PDFJS_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs`;
+const PDFJS_WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+let pdfjsLibPromise = null;
+function loadPdfJs(){
+  if (!pdfjsLibPromise){
+    pdfjsLibPromise = import(/* webpackIgnore: true */ PDFJS_URL).then(lib => {
+      lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+      return lib;
+    });
+  }
+  return pdfjsLibPromise;
+}
+
+async function handlePdfUpload(file){
+  const pdfjsLib = await loadPdfJs();
+  const pdfBytes = new Uint8Array(await file.arrayBuffer());
+  const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+  const page = await doc.getPage(1);
+  const [minX, minY, maxX, maxY] = page.view;
+  const vbW = maxX - minX, vbH = maxY - minY;
+  if (!vbW || !vbH) throw new Error('PDF-pagina heeft geen bruikbare afmetingen');
+
+  const targetLongSide = 2000;
+  const S = vbW >= vbH ? targetLongSide/vbW : targetLongSide/vbH;
+  const outW = vbW*S, outH = vbH*S;
+  const M0 = [S, 0, 0, -S, -S*minX, S*minY + outH]; // y-flip: canvas y groeit naar beneden, PDF-ruimte naar boven
+
+  const opList = await page.getOperatorList();
+  const ops = collectPdfPaintOps(opList.fnArray, opList.argsArray, pdfjsLib.OPS, M0);
+  if (!ops.length) throw new Error('Geen vulbare vormen gevonden op de eerste pagina van dit PDF-bestand');
+
+  // Teken dezelfde paden die ook de vector-EPS voeden, rechtstreeks op canvas — dit vermijdt
+  // elke afhankelijkheid van pdf.js' eigen canvas-renderer voor het voorbeeld/de rasterexports.
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(outW));
+  canvas.height = Math.max(1, Math.round(outH));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  for (const op of ops){
+    ctx.beginPath();
+    for (const sub of op.subpaths){
+      for (const seg of sub){
+        if (seg.type === 'M'){ const [x,y] = matApply(op.matrix, seg.x, seg.y); ctx.moveTo(x, y); }
+        else if (seg.type === 'L'){ const [x,y] = matApply(op.matrix, seg.x, seg.y); ctx.lineTo(x, y); }
+        else if (seg.type === 'C'){
+          const [x1,y1] = matApply(op.matrix, seg.x1, seg.y1);
+          const [x2,y2] = matApply(op.matrix, seg.x2, seg.y2);
+          const [x,y] = matApply(op.matrix, seg.x, seg.y);
+          ctx.bezierCurveTo(x1, y1, x2, y2, x, y);
+        }
+        else if (seg.type === 'Z') ctx.closePath();
+      }
+    }
+    ctx.fill(op.fillRule === 'evenodd' ? 'evenodd' : 'nonzero');
+  }
+  const dataUrl = canvas.toDataURL('image/png');
+  const img = new Image();
+  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = dataUrl; });
+  return { img, pdfBytes, pageCount: doc.numPages };
+}
+
+function decodePdfPathBuffer(buf){
+  const subpaths = []; let cur = null; let i = 0; let curX = 0, curY = 0;
+  while (i < buf.length){
+    const op = buf[i++];
+    if (op === 0){ const x=buf[i++],y=buf[i++]; curX=x; curY=y; cur=[]; subpaths.push(cur); cur.push({type:'M',x,y}); }
+    else if (op === 1){ const x=buf[i++],y=buf[i++]; curX=x; curY=y; if(!cur){cur=[];subpaths.push(cur);} cur.push({type:'L',x,y}); }
+    else if (op === 2){ const x1=buf[i++],y1=buf[i++],x2=buf[i++],y2=buf[i++],x=buf[i++],y=buf[i++]; curX=x; curY=y; if(!cur){cur=[];subpaths.push(cur);} cur.push({type:'C',x1,y1,x2,y2,x,y}); }
+    else if (op === 3){ const x1=buf[i++],y1=buf[i++],x=buf[i++],y=buf[i++];
+      const c1x=curX+2/3*(x1-curX), c1y=curY+2/3*(y1-curY), c2x=x+2/3*(x1-x), c2y=y+2/3*(y1-y);
+      curX=x; curY=y; if(!cur){cur=[];subpaths.push(cur);} cur.push({type:'C',x1:c1x,y1:c1y,x2:c2x,y2:c2y,x,y}); }
+    else if (op === 4){ if(!cur){cur=[];subpaths.push(cur);} cur.push({type:'Z'}); }
+    else break;
+  }
+  return subpaths;
+}
+
+function collectPdfPaintOps(fnArray, argsArray, OPS, M0){
+  const ops = []; const stack = []; let curM = M0;
+  for (let i = 0; i < fnArray.length; i++){
+    const fn = fnArray[i], args = argsArray[i];
+    if (fn === OPS.save) stack.push(curM);
+    else if (fn === OPS.restore){ if (stack.length) curM = stack.pop(); }
+    else if (fn === OPS.transform) curM = matMultiply(curM, args);
+    else if (fn === OPS.paintFormXObjectBegin){ stack.push(curM); if (args && args[0]) curM = matMultiply(curM, args[0]); }
+    else if (fn === OPS.paintFormXObjectEnd){ if (stack.length) curM = stack.pop(); }
+    else if (fn === OPS.constructPath){
+      const paintFn = args[0];
+      const buf = args[1] && args[1][0];
+      if (!buf) continue;
+      const subpaths = decodePdfPathBuffer(buf);
+      if (!subpaths.length) continue;
+      const isEvenOdd = (paintFn === OPS.eoFill || paintFn === OPS.eoFillStroke || paintFn === OPS.closeEOFillStroke);
+      const isFillPaint = (paintFn === OPS.fill || paintFn === OPS.eoFill || paintFn === OPS.fillStroke || paintFn === OPS.eoFillStroke || paintFn === OPS.closeFillStroke || paintFn === OPS.closeEOFillStroke);
+      if (isFillPaint) ops.push({ subpaths, matrix: curM, fillRule: isEvenOdd ? 'evenodd' : 'nonzero' });
+    }
+  }
+  return ops;
+}
+
+async function buildVectorEPSFromPDF(pdfBytes, cmyk, title, targetLongSidePt){
+  const pdfjsLib = await loadPdfJs();
+  const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+  const page = await doc.getPage(1);
+  const [minX, minY, maxX, maxY] = page.view;
+  const vbW = maxX - minX, vbH = maxY - minY;
+  if (!vbW || !vbH) throw new Error('PDF-pagina heeft geen bruikbare afmetingen');
+
+  const target = targetLongSidePt || 720;
+  const S = vbW >= vbH ? target/vbW : target/vbH;
+  const outW = vbW*S, outH = vbH*S;
+  const M0 = [S, 0, 0, S, -S*minX, -S*minY]; // geen y-flip nodig: PDF-ruimte is al y-omhoog, net als PostScript
+
+  const opList = await page.getOperatorList();
+  const ops = collectPdfPaintOps(opList.fnArray, opList.argsArray, pdfjsLib.OPS, M0);
+  if (!ops.length) throw new Error('Geen vulbare vormen gevonden op de eerste pagina van dit PDF-bestand');
+
+  const psLines = [];
+  for (const op of ops){
+    for (const sub of op.subpaths){
+      for (const seg of sub){
+        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} moveto`); }
+        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} lineto`); }
+        else if (seg.type==='C'){
+          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
+          psLines.push(`${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} curveto`);
+        } else if (seg.type==='Z'){ psLines.push('closepath'); }
+      }
+    }
+    psLines.push(op.fillRule==='evenodd' ? 'eofill' : 'fill');
+  }
+  const [c,m,ye,k] = cmyk;
+  const wPt = Math.round(outW), hPt = Math.round(outH);
+  return `%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 ${wPt} ${hPt}
+%%HiResBoundingBox: 0 0 ${psNum(outW)} ${psNum(outH)}
+%%Creator: TKK Logo Assets Generator
+%%Title: (${title})
+%%EndComments
+gsave
+${c} ${m} ${ye} ${k} setcmykcolor
+${psLines.join('\n')}
+grestore
+%%EOF
+`;
+}
+
+/* ── EPS: RASTER-MASKER fallback (voor logo's die enkel als PNG/JPG zijn geüpload) ──
+   Werkwijze: het silhouet (alfa/vorm) van het logo wordt vastgelegd als een 1-bit masker.
+   PostScript's `imagemask`-operator kleurt dat masker in met de kleur die vooraf is
+   ingesteld via `setcmykcolor` — dat is de EXACTE CMYK-waarde die je in stap 02 hebt
+   ingevuld, zonder enige RGB-naar-CMYK-omzetting. Enkel mogelijk voor vlakke (1-kleur)
+   varianten: merkkleuren, zwart, wit — dit zijn de enige exporteerbare kleurversies. */
+const EPS_MASK_SIZE = 1500; // px, ≈ 5 inch breed bij 300 dpi
+
+function extractMask(img, size, padRatio){
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0,0,size,size);
+  const pad = size * (padRatio ?? 0.08);
+  const maxW = size - pad*2, maxH = size - pad*2;
+  const ratio = Math.min(maxW / img.width, maxH / img.height);
+  const w = img.width * ratio, h = img.height * ratio;
+  const x = (size - w) / 2, y = (size - h) / 2;
+  ctx.drawImage(img, x, y, w, h);
+  const data = ctx.getImageData(0, 0, size, size).data;
+
+  // Bepaal of de bron echte transparantie heeft binnen het getekende gebied
+  let hasAlphaVariation = false;
+  for (let py = Math.floor(y); py < Math.ceil(y+h) && !hasAlphaVariation; py++){
+    for (let px = Math.floor(x); px < Math.ceil(x+w); px++){
+      const a = data[(py*size+px)*4+3];
+      if (a > 5 && a < 250){ hasAlphaVariation = true; break; }
+      if (a <= 5){ hasAlphaVariation = true; break; }
+    }
+  }
+
+  const bits = new Uint8Array(size*size);
+  let usedFallback = false;
+  if (hasAlphaVariation){
+    for (let i = 0; i < size*size; i++) bits[i] = data[i*4+3] >= 128 ? 1 : 0;
+  } else {
+    // Geen transparantie in de bron: val terug op helderheid t.o.v. de hoekkleur (vermoedelijke achtergrond)
+    usedFallback = true;
+    const corner = [data[3*4], data[3*4+1], data[3*4+2]]; // pixel (3,0)-ish, ruwe schatting
+    const bg = [data[0], data[1], data[2]];
+    for (let py = 0; py < size; py++){
+      for (let px = 0; px < size; px++){
+        const idx = (py*size+px)*4;
+        const dist = Math.abs(data[idx]-bg[0]) + Math.abs(data[idx+1]-bg[1]) + Math.abs(data[idx+2]-bg[2]);
+        bits[py*size+px] = dist > 60 ? 1 : 0;
+      }
+    }
+  }
+  return { maskWidth: size, maskHeight: size, bits, usedFallback };
+}
+
+function buildFlatEPS({ maskWidth, maskHeight, bits, cmyk, title, dpi }){
+  dpi = dpi || 300;
+  const wPt = Math.round(maskWidth * 72 / dpi);
+  const hPt = Math.round(maskHeight * 72 / dpi);
+  const rowBytes = Math.ceil(maskWidth / 8);
+  const lines = [];
+  for (let y = 0; y < maskHeight; y++){
+    let line = '';
+    for (let xByte = 0; xByte < rowBytes; xByte++){
+      let byte = 0;
+      for (let b = 0; b < 8; b++){
+        const x = xByte*8+b;
+        const v = x < maskWidth ? bits[y*maskWidth+x] : 0;
+        byte = (byte << 1) | v;
+      }
+      line += byte.toString(16).padStart(2,'0');
+    }
+    lines.push(line);
+  }
+  const [c,m,ye,k] = cmyk;
+  return `%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 ${wPt} ${hPt}
+%%HiResBoundingBox: 0 0 ${wPt} ${hPt}
+%%Creator: TKK Logo Assets Generator
+%%Title: (${title})
+%%EndComments
+gsave
+${c} ${m} ${ye} ${k} setcmykcolor
+${wPt} ${hPt} scale
+/rowbytes ${rowBytes} string def
+${maskWidth} ${maskHeight} true [${maskWidth} 0 0 -${maskHeight} 0 ${maskHeight}]
+{ currentfile rowbytes readhexstring pop }
+imagemask
+${lines.join('\n')}
+grestore
+%%EOF
+`;
+}
+
+function flatCmykForVariant(v){
+  // geeft [c,m,y,k] als fracties 0-1, of null als deze variant geen eenduidige vlakke kleur heeft
+  if (v.key === 'black') return [0,0,0,1];
+  if (v.key === 'white') return [0,0,0,0];
+  if (v.key.startsWith('brand-')){
+    const id = v.key.replace('brand-','');
+    const col = colors.find(c => c.id === id);
+    if (col) return [col.c/100, col.m/100, col.y/100, col.k/100];
+  }
+  return null; // 'original' — mogelijk meerkleurig, geen eenduidige CMYK
+}
+
+function recolorSvgText(svgText, hex){
+  try{
+    const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) return svgText; // ongeldige SVG: geef origineel terug ipv te falen
+    const svg = doc.documentElement;
+    const style = doc.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = `*:not([fill="none"]) { fill: ${hex} !important; } *[stroke]:not([stroke="none"]) { stroke: ${hex} !important; }`;
+    svg.insertBefore(style, svg.firstChild);
+    return new XMLSerializer().serializeToString(doc);
+  } catch(e){
+    return svgText; // fallback: origineel bestand ipv de export te laten mislukken
+  }
+}
+
+/* ── SCHATTING ── */
+function computeCounts(){
+  const variants = variantList().filter(v => checkedVariants.has(v.key));
+  const bgCount = (document.getElementById('bg-white').checked ? 1 : 0) + (document.getElementById('bg-black').checked ? 1 : 0) || 1;
+  const doSvg = document.getElementById('pkg-svg').checked;
+  const doPng = document.getElementById('pkg-png').checked;
+  const doJpg = document.getElementById('pkg-jpg').checked;
+  const doWebp = document.getElementById('pkg-webp').checked;
+  const doPrint = document.getElementById('pkg-print').checked;
+  let total = 0;
+  logos.forEach(l => {
+    const hasSvg = l.type === 'svg';
+    if (doSvg && hasSvg) total += variants.length;
+    if (doPng) total += variants.length * PNG_SIZES.length;
+    if (doJpg) total += variants.length * bgCount;
+    if (doWebp) total += variants.length;
+    if (doPrint){
+      total += variants.length; // print PNGs
+      total += variants.length; // EPS met exacte CMYK voor elke kleurversie
+      if (hasSvg || l.type === 'pdf') total += 1; // bron-kopie (vector-SVG of PDF)
+    }
+  });
+  return { total, variants, bgCount };
+}
+function updateEstimate(){
+  if (!document.getElementById('estimate-text')) return;
+  const { total } = computeCounts();
+  let msg;
+  if (!logos.length) msg = 'Upload eerst een logo om een schatting te zien.';
+  else if (!clientName.trim()) msg = `≈ <b>${total}</b> bestanden — vul eerst een klant-/organisatienaam in (stap 01) om te kunnen exporteren.`;
+  else msg = `≈ <b>${total}</b> bestanden in het ZIP-archief`;
+  document.getElementById('estimate-text').innerHTML = msg;
+  renderExportTree();
+}
+
+/* ── EXPORT ── */
+function updateExportState(){
+  const has = logos.length > 0 && clientName.trim().length > 0;
+  document.getElementById('export-btn').disabled = !has;
+}
+function canvasToBlob(canvas, type, quality){
+  return new Promise(res => canvas.toBlob(b => res(b), type || 'image/png', quality));
+}
+function buildCanvas(img, size, variantColor, bgColor, padRatio){
+  const c = document.createElement('canvas');
+  drawVariantToCanvas(img, c, { size, variantColor, bgColor, padRatio });
+  return c;
+}
+function setStatus(t){ document.getElementById('status-text').textContent = t; }
+
+async function exportZip(){
+  if (!logos.length || !clientName.trim()) return;
+  const zip = new JSZip();
+  const clientSlug = slugify(clientName.trim());
+  const { variants, bgCount } = computeCounts();
+  const doSvg = document.getElementById('pkg-svg').checked;
+  const doPng = document.getElementById('pkg-png').checked;
+  const doJpg = document.getElementById('pkg-jpg').checked;
+  const doWebp = document.getElementById('pkg-webp').checked;
+  const doPrint = document.getElementById('pkg-print').checked;
+  const jpgBgs = [];
+  if (document.getElementById('bg-white').checked) jpgBgs.push({ name: 'wit', hex: '#ffffff' });
+  if (document.getElementById('bg-black').checked) jpgBgs.push({ name: 'zwart', hex: '#000000' });
+  if (!jpgBgs.length) jpgBgs.push({ name: 'wit', hex: '#ffffff' });
+
+  setStatus('Bezig met genereren…');
+  document.getElementById('export-btn').disabled = true;
+
+  const sortedLogos = logos.slice();
+  for (let i = 0; i < sortedLogos.length; i++){
+    const logo = sortedLogos[i];
+    const folderName = String(i + 1).padStart(2, '0') + '_' + rolePart(logo.role);
+    const folder = zip.folder(folderName);
+    const digital = folder.folder('01_RGB_Digital');
+    const nameBase = `${clientSlug}-${slugify(logo.role)}`;
+
+    if (doSvg && logo.type === 'svg' && logo.svgText){
+      const svgFolder = digital.folder('01_SVG');
+      for (const v of variants){
+        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, recolorSvgText(logo.svgText, v.hex));
+      }
+    }
+    if (doPng){
+      const pngFolder = digital.folder('02_PNG_Transparent');
+      for (const v of variants){
+        for (const size of PNG_SIZES){
+          const c = buildCanvas(logo.img, size, v.hex, null, 0.08);
+          const blob = await canvasToBlob(c, 'image/png');
+          pngFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-${String(size).padStart(4,"0")}px.png`, blob);
+        }
+      }
+    }
+    if (doJpg){
+      const jpgFolder = digital.folder('03_JPG');
+      for (const v of variants){
+        for (const bg of jpgBgs){
+          const c = buildCanvas(logo.img, 2000, v.hex, bg.hex, 0.1);
+          const blob = await canvasToBlob(c, 'image/jpeg', 0.92);
+          jpgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-op-${bg.name}.jpg`, blob);
+        }
+      }
+    }
+    if (doWebp){
+      const webpFolder = digital.folder('04_WEBP');
+      for (const v of variants){
+        const c = buildCanvas(logo.img, 2048, v.hex, null, 0.08);
+        const blob = await canvasToBlob(c, 'image/webp', 0.92);
+        if (blob) webpFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.webp`, blob);
+      }
+    }
+    if (doPrint){
+      const printFolder = folder.folder('02_CMYK_Print');
+      let mask = null, maskFallbackUsed = false;
+      let vectorFailed = false, vectorFailReason = '';
+      const epsVariants = [];
+      const canTryVector = (logo.type === 'svg' && !!logo.svgText) || (logo.type === 'pdf' && !!logo.pdfBytes);
+      for (const v of variants){
+        const c = buildCanvas(logo.img, PRINT_SIZE, v.hex, null, 0.06);
+        const blob = await canvasToBlob(c, 'image/png');
+        printFolder.file(`${nameBase}-${slugify(v.label)}-print-300dpi.png`, blob);
+
+        const cmyk = flatCmykForVariant(v);
+        if (!cmyk) continue;
+        let eps = null, usedVector = false;
+        if (canTryVector && !vectorFailed){
+          try {
+            if (logo.type === 'svg'){
+              eps = buildVectorEPS(logo.svgText, cmyk, `${nameBase}-${slugify(v.label)}-print`, 720);
+            } else {
+              eps = await buildVectorEPSFromPDF(logo.pdfBytes, cmyk, `${nameBase}-${slugify(v.label)}-print`, 720);
+            }
+            usedVector = true;
+          } catch(e){
+            vectorFailed = true; vectorFailReason = e.message || String(e);
+          }
+        }
+        if (!eps){
+          if (!mask){ mask = extractMask(logo.img, EPS_MASK_SIZE, 0.08); maskFallbackUsed = mask.usedFallback; }
+          eps = buildFlatEPS({
+            maskWidth: mask.maskWidth, maskHeight: mask.maskHeight, bits: mask.bits,
+            cmyk, title: `${nameBase}-${slugify(v.label)}-print`, dpi: 300
+          });
+        }
+        printFolder.file(`${nameBase}-${slugify(v.label)}-print.eps`, eps);
+        epsVariants.push(v.label + (usedVector ? ' (vector)' : ' (raster)'));
+      }
+      if (logo.type === 'svg' && logo.svgText){
+        printFolder.file(`${nameBase}-print-vector-bron.svg`, logo.svgText);
+      } else if (logo.type === 'pdf' && logo.pdfBytes){
+        printFolder.file(`${nameBase}-print-bron.pdf`, logo.pdfBytes);
+      }
+    }
+  }
+
+  setStatus('ZIP samenstellen…');
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${clientSlug}-logo-asset-pack.zip`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  setStatus('Klaar — ZIP gedownload.');
+  document.getElementById('export-btn').disabled = false;
+  setTimeout(() => setStatus(''), 4000);
+}
+
+renderVariantChecks();
+updateEstimate();
+</script>
+</body>
+</html>

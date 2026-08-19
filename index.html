@@ -203,8 +203,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
       <div>
         <div class="section-label">02. Logo's</div>
-        <button class="upload-zone" onclick="document.getElementById('logo-upload').click()">Kies of upload logo's (SVG, PDF, PNG)</button>
-        <input type="file" id="logo-upload" accept=".svg,image/svg+xml,.pdf,application/pdf,image/png,image/jpeg" multiple onchange="handleLogoUpload(this)">
+        <button class="upload-zone" onclick="document.getElementById('logo-upload').click()">Kies of upload logo's (SVG, PDF)</button>
+        <input type="file" id="logo-upload" accept=".svg,image/svg+xml,.pdf,application/pdf" multiple onchange="handleLogoUpload(this)">
         <div class="thumb-grid" id="logo-thumbs"></div>
         <div id="logo-role-controls" style="display:none; margin-top:8px">
           <div class="hint-text" style="opacity:0.85; font-style:normal; margin-bottom:4px">Rol voor "<span id="logo-role-active-name"></span>"</div>
@@ -225,7 +225,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
             </datalist>
           </div>
         </div>
-        <div class="hint-text" style="margin-top:6px">Elk logo krijgt een genummerde map op basis van zijn rol, bv. 01_Primary_Logo. Typ zelf een naam of kies een suggestie. SVG of PDF geven het beste resultaat voor print (echt vectoriële EPS); bij een PDF wordt enkel de eerste pagina gebruikt.</div>
+        <div class="hint-text" style="margin-top:6px">Elk logo krijgt een genummerde map op basis van zijn rol, bv. 01_Primary_Logo. Typ zelf een naam of kies een suggestie. Enkel vectorbestanden (SVG/PDF) — dat garandeert een scherpe, oneindig schaalbare EPS voor print; bij een PDF wordt enkel de eerste pagina gebruikt.</div>
       </div>
 
       <div>
@@ -266,7 +266,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
         <label class="check-row"><input type="checkbox" id="bg-black" onchange="updateEstimate()"> Zwart</label>
         <hr class="divider" style="margin:10px 0">
         <label class="check-row"><input type="checkbox" id="pkg-print" checked onchange="updateEstimate()"> Print-map (300 dpi PNG + CMYK EPS per vlakke kleurversie)</label>
-        <div class="hint-text">De EPS gebruikt de exacte CMYK-waarden uit stap 03 (geen RGB-schatting). Voor SVG- of PDF-geüploade logo's zijn dit ECHTE VECTORPADEN — oneindig schaalbaar (bij PDF wordt pdf.js gebruikt, vanaf een CDN, en enkel de eerste pagina). Voor logo's die enkel als PNG/JPG zijn geüpload valt de EPS terug op een hoge-resolutie rastermasker.</div>
+        <div class="hint-text">De EPS gebruikt de exacte CMYK-waarden uit stap 03 (geen RGB-schatting) en bevat ECHTE VECTORPADEN — oneindig schaalbaar (bij PDF wordt pdf.js gebruikt, vanaf een CDN, en enkel de eerste pagina). Als de vectorpaden van een logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, of een verloop), valt de EPS voor dat logo terug op een hoge-resolutie rastermasker.</div>
         <div class="estimate-text" id="estimate-text"></div>
       </div>
 
@@ -287,7 +287,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 </div>
 
 <script>
-let logos = [];        // {id, name, slug, role, order, type: 'svg'|'raster', img, svgText}
+let logos = [];        // {id, name, slug, role, order, type: 'svg'|'pdf', img, svgText}
 let colors = [];       // {id, name, hex, c,m,y,k, pantone}
 let activeLogoId = null;
 let checkedVariants = new Set(['black', 'white']);
@@ -323,22 +323,6 @@ function handleLogoUpload(input){
     const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     const defaultRole = logos.length === 0 ? 'Primary Logo' : 'Logo Mark';
-    const finish = (src, svgText) => {
-      const img = new Image();
-      img.onload = () => {
-        logos.push({
-          id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
-          role: defaultRole, type: isSvg ? 'svg' : 'raster', img, svgText: svgText || null
-        });
-        if (!activeLogoId) activeLogoId = id;
-        renderLogoThumbs();
-        renderExportTree();
-        updateExportState();
-        updateEstimate();
-      };
-      img.onerror = () => alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG/PNG/JPG-bestand?');
-      img.src = src;
-    };
     if (isPdf){
       handlePdfUpload(file).then(({ img, pdfBytes, pageCount }) => {
         logos.push({
@@ -355,13 +339,24 @@ function handleLogoUpload(input){
       textReader.onload = e => {
         const svgText = e.target.result;
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
-        finish(dataUrl, svgText);
+        const img = new Image();
+        img.onload = () => {
+          logos.push({
+            id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
+            role: defaultRole, type: 'svg', img, svgText
+          });
+          if (!activeLogoId) activeLogoId = id;
+          renderLogoThumbs();
+          renderExportTree();
+          updateExportState();
+          updateEstimate();
+        };
+        img.onerror = () => alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?');
+        img.src = dataUrl;
       };
       textReader.readAsText(file);
     } else {
-      const reader = new FileReader();
-      reader.onload = e => finish(e.target.result, null);
-      reader.readAsDataURL(file);
+      alert('"' + file.name + '" is geen SVG of PDF. Deze tool aanvaardt enkel vectorbestanden — exporteer het logo eerst als SVG of PDF.');
     }
   });
   input.value = '';
@@ -995,11 +990,11 @@ grestore
 
 /* ── PDF: laden via pdf.js (Mozilla), voor zowel voorbeeld/raster-export als echte vectorpaden ──
    pdf.js wordt pas ingeladen (via dynamic import vanaf een CDN) zodra iemand echt een PDF
-   uploadt — geen impact op tools die enkel SVG/PNG gebruiken. We gebruiken twee dingen van
-   pdf.js: (1) de pagina naar een canvas renderen, voor voorbeeld en de digitale PNG/JPG/WebP-
-   exports, net als bij een PNG/JPG-bron; (2) de "operator list" van de pagina — de al-
+   uploadt — geen impact op tools die enkel SVG gebruiken. We gebruiken twee dingen van
+   pdf.js: (1) de pagina naar een canvas renderen, als bron voor het voorbeeld en de digitale
+   PNG/JPG/WebP-exports; (2) de "operator list" van de pagina — de al-
    uitgepakte tekencommando's vóór ze naar canvas gerenderd worden — om de echte vectorpaden
-   te lezen voor de print-EPS, op dezelfde manier als bij een SVG-bron. Enkel de eerste pagina
+   te lezen voor de print-EPS én de digitale SVG, op dezelfde manier als bij een SVG-bron. Enkel de eerste pagina
    wordt gebruikt. Tekst, afbeeldingen, verlopen en clip-paths worden genegeerd (zelfde
    beperking als bij SVG) — converteer tekst dus vooraf naar paden/outlines. */
 const PDFJS_VERSION = '6.2.108';
@@ -1191,7 +1186,8 @@ async function buildVectorSVGFromPDF(pdfBytes, targetLongSidePx){
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${psNum(outW)} ${psNum(outH)}">\n  ${pathEls}\n</svg>\n`;
 }
 
-/* ── EPS: RASTER-MASKER fallback (voor logo's die enkel als PNG/JPG zijn geüpload) ──
+/* ── EPS: RASTER-MASKER fallback (voor SVG/PDF-logo's waarvan de vectorpaden niet uitgelezen
+   konden worden, bv. tekst die niet naar paden is omgezet, een verloop, of een clip-path) ──
    Werkwijze: het silhouet (alfa/vorm) van het logo wordt vastgelegd als een 1-bit masker.
    PostScript's `imagemask`-operator kleurt dat masker in met de kleur die vooraf is
    ingesteld via `setcmykcolor` — dat is de EXACTE CMYK-waarde die je in stap 02 hebt

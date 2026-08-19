@@ -15,17 +15,17 @@ Vanilla HTML/CSS/JS + Canvas API, gebouwd op `assets/template.html` uit de `tkk-
 ## Kernfunctionaliteit
 
 1. **Klantnaam** (stap 01) — vormt de basis van elke bestandsnaam in de export, nooit de naam van het geüploade bronbestand.
-2. **Logo's uploaden** (SVG, PDF of PNG/JPG) — elk logo krijgt een vrij intypbare rol (met suggesties via `<datalist>`, geen vaste dropdown) die de mapnaam bepaalt. Een "+"-tegel naast bestaande logo's maakt duidelijk dat je er meer kan toevoegen.
+2. **Logo's uploaden** (enkel SVG of PDF — vectorbronnen, zie "Bewust niet") — elk logo krijgt een vrij intypbare rol (met suggesties via `<datalist>`, geen vaste dropdown) die de mapnaam bepaalt. Een "+"-tegel naast bestaande logo's maakt duidelijk dat je er meer kan toevoegen.
 3. **Merkkleuren** (naam + hex + exacte CMYK + optioneel Pantone) — de CMYK-waarden worden letterlijk overgenomen, nooit automatisch geschat vanuit hex (browsers kunnen dat niet betrouwbaar zonder ICC-profiel).
 4. **Kleurversies per asset** — dynamisch: elke toegevoegde merkkleur plus zwart/wit worden automatisch aangeboden als aan te vinken variant.
 5. **Pakket-opties** — SVG/PNG/JPG/WebP voor digitaal, plus een print-map met 300dpi PNG en een EPS per vlakke kleurversie.
 
 ## Vector-EPS: hoe de CMYK-precisie werkt
 
-Browsers kunnen RGB niet betrouwbaar naar CMYK omrekenen (geen ICC-profiel) — dus in plaats van te proberen te converteren, wordt de vorm van het logo (silhouet) apart vastgelegd en met PostScript's `setcmykcolor` ingekleurd met de CMYK-waarde die de gebruiker letterlijk heeft ingevuld. Twee routes, afhankelijk van het bronformaat:
+Browsers kunnen RGB niet betrouwbaar naar CMYK omrekenen (geen ICC-profiel) — dus in plaats van te proberen te converteren, wordt de vorm van het logo (silhouet) apart vastgelegd en met PostScript's `setcmykcolor` ingekleurd met de CMYK-waarde die de gebruiker letterlijk heeft ingevuld. Twee routes:
 
-- **SVG- of PDF-bron**: de vectorpaden worden zelf omgezet naar PostScript-paden (`moveto`/`lineto`/`curveto`) — een echt, oneindig schaalbaar vectorbestand. Voor PDF gebeurt dit via pdf.js' operator-list (de al-uitgepakte tekencommando's), niet via een eigen PDF-parser.
-- **Enkel PNG/JPG-bron** (geen vectorbron): valt terug op een hogeresolutie rastermasker (1500px) ingekleurd via `imagemask` — nog steeds de exacte CMYK-waarde, maar geen oneindig schaalbaar vectorpad.
+- **Normaal geval**: de vectorpaden van de geüploade SVG/PDF worden zelf omgezet naar PostScript-paden (`moveto`/`lineto`/`curveto`) — een echt, oneindig schaalbaar vectorbestand. Voor PDF gebeurt dit via pdf.js' operator-list (de al-uitgepakte tekencommando's), niet via een eigen PDF-parser.
+- **Fallback bij parse-mislukking**: als de vectorpaden van een specifiek logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, een verloop, of een clip-path — zie de beperkingen bij `collectPdfPaintOps`/`collectPaintOps`), valt de EPS voor dat logo terug op een hogeresolutie rastermasker (1500px) ingekleurd via `imagemask` — nog steeds de exacte CMYK-waarde, maar geen oneindig schaalbaar vectorpad. Dit is een foutopvang, geen normaal exportpad — sinds de upload-stap enkel nog SVG/PDF aanvaardt (zie "Bewust niet") is er geen raster-bronbestand meer dat hier standaard doorheen zou moeten.
 
 Getest met Ghostscript: de gerenderde CMYK-waarden kwamen exact overeen met de ingevoerde waarden (tot op 8-bit-afrondingsniveau).
 
@@ -48,7 +48,7 @@ Patroon: `{klantnaam}-{rol}-{kleurversie}-{digitaal|print}-{detail}.{ext}`, bv. 
 
 - Geen automatisch gegenereerde LEESMIJ-bestanden of merkkleuren-documentatie in de export — enkel de effectieve assets (zie SKILL.md).
 - Geen automatische CMYK-conversie vanuit hex — enkel wat de gebruiker zelf invult, plus een optionele "indicatieve schatting"-knop is bewust géén onderdeel meer (verwijderd op vraag, om verwarring met een echte waarde te vermijden).
-- Geen echte vectorisatie van raster-bronnen (PNG/JPG) — enkel SVG/PDF-bronnen krijgen een vector-EPS.
+- **Geen PNG/JPG als upload-bron** (bewust verwijderd op vraag) — stap 02 aanvaardt enkel SVG en PDF. Elk ander bestandstype geeft nu een duidelijke foutmelding i.p.v. stilzwijgend een raster-logo aan te maken. Reden: een raster-bron levert nooit een echte vector-EPS of -SVG op (enkel het rastermasker-fallback, zie "Vector-EPS"), wat verwarrend was als iemand per ongeluk een PNG uploadde en een matige print-kwaliteit kreeg zonder dat duidelijk was waarom. PNG/JPG blijven wel gewoon geldige **export**-formaten (stap 05) — het gaat enkel om wat als bron aanvaard wordt.
 
 ## Getest
 

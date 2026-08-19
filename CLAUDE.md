@@ -29,6 +29,8 @@ Browsers kunnen RGB niet betrouwbaar naar CMYK omrekenen (geen ICC-profiel) — 
 
 Getest met Ghostscript: de gerenderde CMYK-waarden kwamen exact overeen met de ingevoerde waarden (tot op 8-bit-afrondingsniveau).
 
+Diezelfde PDF-vectorpaden (via `collectPdfPaintOps()`) voeden ook de **digitale SVG-export** (`buildVectorSVGFromPDF()`) — een PDF-bron levert dus, net als een SVG-bron, een echte `01_SVG`-map op in plaats van enkel raster-formaten. De functie schrijft dezelfde paden als SVG `<path d="…">` i.p.v. PostScript, met `fill="#000000"` als placeholder; de bestaande `recolorSvgText()` herkleurt 'm daarna per variant, exact zoals bij een geüploade SVG.
+
 ## Export-boomstructuur i.p.v. logo-preview
 
 Het resultaatvlak rechts toont geen render van het logo (checkerboard-preview), maar een live meebewegende boomweergave van de exacte mapstructuur en bestandsnamen die in de ZIP terechtkomen. Reden: een render van één kleurvariant zei weinig over wat er werkelijk gegenereerd zou worden (meerdere logo's, meerdere varianten, digitaal + print); de boomstructuur beantwoordt direct de vraag "wat zit er straks in dat bestand?". Gebouwd via `buildExportTree()`, die exact dezelfde naamgevingslogica hergebruikt als de eigenlijke export (`exportZip()`) — beide moeten synchroon blijven bij wijzigingen.

@@ -543,18 +543,28 @@ function drawVariantToCanvas(img, targetCanvas, options){
   targetCanvas.width = size; targetCanvas.height = size;
   const ctx = targetCanvas.getContext('2d');
   ctx.clearRect(0,0,size,size);
-  if (options.bgColor){ ctx.fillStyle = options.bgColor; ctx.fillRect(0,0,size,size); }
   const pad = size * (options.padRatio ?? 0.1);
   const maxW = size - pad*2, maxH = size - pad*2;
   const ratio = Math.min(maxW / img.width, maxH / img.height);
   const w = img.width * ratio, h = img.height * ratio;
   const x = (size - w) / 2, y = (size - h) / 2;
-  ctx.drawImage(img, x, y, w, h);
+
+  // Het logo eerst apart tekenen/tinten en pas daarna over de achtergrond heen plaatsen —
+  // 'source-in' kleurt anders ALLES wat al ondoorzichtig is op het canvas, inclusief een net
+  // getekende achtergrondvulling, niet enkel de vorm van het logo zelf.
   if (options.variantColor){
-    ctx.globalCompositeOperation = 'source-in';
-    ctx.fillStyle = options.variantColor;
-    ctx.fillRect(0,0,size,size);
-    ctx.globalCompositeOperation = 'source-over';
+    const logoCanvas = document.createElement('canvas');
+    logoCanvas.width = size; logoCanvas.height = size;
+    const lctx = logoCanvas.getContext('2d');
+    lctx.drawImage(img, x, y, w, h);
+    lctx.globalCompositeOperation = 'source-in';
+    lctx.fillStyle = options.variantColor;
+    lctx.fillRect(0,0,size,size);
+    if (options.bgColor){ ctx.fillStyle = options.bgColor; ctx.fillRect(0,0,size,size); }
+    ctx.drawImage(logoCanvas, 0, 0);
+  } else {
+    if (options.bgColor){ ctx.fillStyle = options.bgColor; ctx.fillRect(0,0,size,size); }
+    ctx.drawImage(img, x, y, w, h);
   }
   return targetCanvas;
 }
@@ -585,7 +595,7 @@ function buildExportTree(){
 
     if (doSvg || doPng || doJpg || doWebp){
       const digital = { name: '01_RGB_Digital', type: 'folder', children: [] };
-      if (doSvg && logo.type === 'svg' && logo.svgText){
+      if (doSvg && ((logo.type === 'svg' && logo.svgText) || (logo.type === 'pdf' && logo.pdfBytes))){
         digital.children.push({ name: '01_SVG', type: 'folder',
           children: variants.map(v => ({ name: `${nameBase}-${slugify(v.label)}-digitaal.svg`, type: 'file' })) });
       }
@@ -1140,6 +1150,47 @@ grestore
 `;
 }
 
+/* ── SVG: uit een PDF-bron ── Hergebruikt exact dezelfde vectorpaden als buildVectorEPSFromPDF
+   (via collectPdfPaintOps), maar schrijft ze als SVG <path d="…">-data i.p.v. PostScript. Het
+   resultaat is een gewone SVG-string zonder ingebakken kleur (fill="#000000"), zodat de
+   bestaande recolorSvgText()-functie 'm net als een geüploade SVG-bron per kleurvariant kan
+   herkleuren — geen aparte kleurlogica nodig voor PDF-afkomstige SVG's. */
+async function buildVectorSVGFromPDF(pdfBytes, targetLongSidePx){
+  const pdfjsLib = await loadPdfJs();
+  const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+  const page = await doc.getPage(1);
+  const [minX, minY, maxX, maxY] = page.view;
+  const vbW = maxX - minX, vbH = maxY - minY;
+  if (!vbW || !vbH) throw new Error('PDF-pagina heeft geen bruikbare afmetingen');
+
+  const target = targetLongSidePx || 1000;
+  const S = vbW >= vbH ? target/vbW : target/vbH;
+  const outW = vbW*S, outH = vbH*S;
+  const M0 = [S, 0, 0, -S, -S*minX, S*minY + outH]; // y-flip, zelfde als de raster-preview in handlePdfUpload
+
+  const opList = await page.getOperatorList();
+  const ops = collectPdfPaintOps(opList.fnArray, opList.argsArray, pdfjsLib.OPS, M0);
+  if (!ops.length) throw new Error('Geen vulbare vormen gevonden op de eerste pagina van dit PDF-bestand');
+
+  const pathEls = ops.map(op => {
+    let d = '';
+    for (const sub of op.subpaths){
+      for (const seg of sub){
+        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); d += `M${psNum(x)} ${psNum(y)} `; }
+        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); d += `L${psNum(x)} ${psNum(y)} `; }
+        else if (seg.type==='C'){
+          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
+          d += `C${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} `;
+        } else if (seg.type==='Z'){ d += 'Z '; }
+      }
+    }
+    const rule = op.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+    return `<path d="${d.trim()}" fill="#000000"${rule}/>`;
+  }).join('\n  ');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${psNum(outW)} ${psNum(outH)}">\n  ${pathEls}\n</svg>\n`;
+}
+
 /* ── EPS: RASTER-MASKER fallback (voor logo's die enkel als PNG/JPG zijn geüpload) ──
    Werkwijze: het silhouet (alfa/vorm) van het logo wordt vastgelegd als een 1-bit masker.
    PostScript's `imagemask`-operator kleurt dat masker in met de kleur die vooraf is
@@ -1267,7 +1318,7 @@ function computeCounts(){
   const doPrint = document.getElementById('pkg-print').checked;
   let total = 0;
   logos.forEach(l => {
-    const hasSvg = l.type === 'svg';
+    const hasSvg = l.type === 'svg' || l.type === 'pdf';
     if (doSvg && hasSvg) total += variants.length;
     if (doPng) total += variants.length * PNG_SIZES.length;
     if (doJpg) total += variants.length * bgCount;
@@ -1336,6 +1387,16 @@ async function exportZip(){
       const svgFolder = digital.folder('01_SVG');
       for (const v of variants){
         svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, recolorSvgText(logo.svgText, v.hex));
+      }
+    } else if (doSvg && logo.type === 'pdf' && logo.pdfBytes){
+      try{
+        const baseSvg = await buildVectorSVGFromPDF(logo.pdfBytes, 1000);
+        const svgFolder = digital.folder('01_SVG');
+        for (const v of variants){
+          svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, recolorSvgText(baseSvg, v.hex));
+        }
+      } catch(e){
+        console.warn(`Kon geen SVG genereren voor "${logo.name}": ${e.message || e}`);
       }
     }
     if (doPng){

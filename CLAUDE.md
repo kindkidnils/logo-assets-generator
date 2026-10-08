@@ -17,7 +17,7 @@ Vanilla HTML/CSS/JS + Canvas API, gebouwd op `assets/template.html` uit de `tkk-
 1. **Klantnaam** (stap 01) — vormt de basis van elke bestandsnaam in de export, nooit de naam van het geüploade bronbestand.
 2. **Logo's uploaden** (enkel SVG of PDF — vectorbronnen, zie "Bewust niet") — elk logo krijgt een vrij intypbare rol (met suggesties via `<datalist>`, geen vaste dropdown) die de mapnaam bepaalt. Een "+"-tegel naast bestaande logo's maakt duidelijk dat je er meer kan toevoegen.
 3. **Merkkleuren** (naam + hex + exacte CMYK + optioneel Pantone) — de CMYK-waarden worden letterlijk overgenomen, nooit automatisch geschat vanuit hex (browsers kunnen dat niet betrouwbaar zonder ICC-profiel).
-4. **Kleurversies per asset** — dynamisch: elke toegevoegde merkkleur plus zwart/wit worden automatisch aangeboden als aan te vinken variant.
+4. **Kleurversies per asset** — dynamisch: elke toegevoegde merkkleur plus zwart/wit worden automatisch aangeboden als aan te vinken variant. Zodra er een meerkleurig logo is, komt daar de variant **Origineel** bij (zie "Meerkleurige logo's").
 5. **Pakket-opties** — SVG/PNG/JPG/WebP voor digitaal, plus een print-map met 300dpi PNG en een EPS per vlakke kleurversie.
 
 ## Vector-EPS: hoe de CMYK-precisie werkt
@@ -29,7 +29,31 @@ Browsers kunnen RGB niet betrouwbaar naar CMYK omrekenen (geen ICC-profiel) — 
 
 Getest met Ghostscript: de gerenderde CMYK-waarden kwamen exact overeen met de ingevoerde waarden (tot op 8-bit-afrondingsniveau).
 
-Diezelfde PDF-vectorpaden (via `collectPdfPaintOps()`) voeden ook de **digitale SVG-export** (`buildVectorSVGFromPDF()`) — een PDF-bron levert dus, net als een SVG-bron, een echte `01_SVG`-map op in plaats van enkel raster-formaten. De functie schrijft dezelfde paden als SVG `<path d="…">` i.p.v. PostScript, met `fill="#000000"` als placeholder; de bestaande `recolorSvgText()` herkleurt 'm daarna per variant, exact zoals bij een geüploade SVG.
+Diezelfde PDF-vectorpaden (via `collectPdfPaintOps()`) voeden ook de **digitale SVG-export**: bij upload schrijft `pdfOpsToSvg()` ze één keer als SVG `<path d="…">` met per vorm de bronkleur uit de PDF (`logo.svgFromPdf`). Vanaf dan wordt een PDF-bron behandeld als een geüploade SVG — `recolorSvgText()` voor de monochrome versies, de kleurkoppeling voor "Origineel".
+
+## Meerkleurige logo's
+
+Elke vorm krijgt bij upload zijn effectieve vulkleur als `data-tkk-fill`-attribuut (`annotateSvgColors()` → `logo.colorSvg`). Voor een SVG berekent de browser die zelf via `getComputedStyle` (het logo hangt daarvoor heel even onzichtbaar in de pagina), zodat ook kleuren via `<style>`-klassen en overerving van een `<g>` kloppen. Voor een PDF komt de kleur uit pdf.js' `setFillRGBColor`-operatoren. Twee of meer verschillende kleuren = meerkleurig logo.
+
+- **Koppeling**: elke gevonden kleur wordt gekoppeld aan de dichtstbijzijnde merkkleur uit stap 03 (RGB-afstand ≤ `COLOR_MATCH_TOLERANCE` = 40; ruim, omdat pdf.js CMYK naar RGB omzet en die hex dus zelden exact gelijk is aan de officiële). Per kleur handmatig te overschrijven in stap 02, ook bewust op "Niet gekoppeld" — een handmatige keuze wordt nooit door de automatische koppeling overschreven, tenzij die merkkleur verwijderd wordt. Een ontbrekende kleur kan je met één klik naar het formulier van stap 03 sturen (hex al ingevuld).
+- **Variant "Origineel"** (enkel voor meerkleurige logo's): digitaal krijgt elke vorm de **hex** van zijn merkkleur (`originalSvgFor()`, en daaruit ook PNG/JPG/WebP — zonder tint), print krijgt een EPS met per vorm de **exacte CMYK** in tekenvolgorde, zodat overlappingen kloppen (`buildVectorEPS()` met een kleurfunctie i.p.v. één CMYK).
+- **Geen EPS zonder volledige koppeling**: zolang één kleur niet gekoppeld is, komt er geen `origineel-print.eps` (ook niet in de boomweergave). Het rastermasker-vangnet kent maar één kleur, dus voor "Origineel" is er geen fallback.
+
+## State shape
+
+```js
+logo = {
+  id, name, role, type: 'svg' | 'pdf',
+  img,            // rasterbeeld voor preview + monochrome tint (PDF: zwart silhouet)
+  svgText,        // SVG-bron (enkel type 'svg')
+  pdfBytes,       // PDF-bron (enkel type 'pdf')
+  svgFromPdf,     // vectorpaden uit de PDF als SVG, met bronkleuren (enkel type 'pdf')
+  colorSvg,       // bron-SVG met data-tkk-fill per vorm
+  colors,         // ['#083213', '#fd6f3b'] — unieke vulkleuren in tekenvolgorde
+  colorMap,       // { '#083213': 'color-3', '#fd6f3b': null } — bronhex → merkkleur-id
+  colorMapManual, // Set van bronhexen die de gebruiker zelf koppelde
+}
+```
 
 ## Export-boomstructuur i.p.v. logo-preview
 
@@ -48,6 +72,8 @@ Patroon: `{klantnaam}-{rol}-{kleurversie}-{digitaal|print}-{detail}.{ext}`, bv. 
 
 - Geen automatisch gegenereerde LEESMIJ-bestanden of merkkleuren-documentatie in de export — enkel de effectieve assets (zie SKILL.md).
 - Geen automatische CMYK-conversie vanuit hex — enkel wat de gebruiker zelf invult, plus een optionele "indicatieve schatting"-knop is bewust géén onderdeel meer (verwijderd op vraag, om verwarring met een echte waarde te vermijden).
+- **Monochrome versies van een meerkleurig logo worden niet aangepast**: alles wordt één kleur, dus overlappende vormen smelten samen (bv. twee overlappende bladeren worden één vlak). Bewust aanvaard — wie een officiële mono-versie uit het merkenboek heeft, uploadt die als apart logo met een eigen rol.
+- **Geen CMYK uitlezen uit een PDF**: pdf.js zet CMYK-kleuren om naar RGB voor we ze zien, dus de originele CMYK uit een CMYK-PDF gaat verloren. Wel mogelijk met een eigen content-stream-parser, maar bewust niet gedaan: de CMYK komt altijd uit stap 03.
 - **Geen PNG/JPG als upload-bron** (bewust verwijderd op vraag) — stap 02 aanvaardt enkel SVG en PDF. Elk ander bestandstype geeft nu een duidelijke foutmelding i.p.v. stilzwijgend een raster-logo aan te maken. Reden: een raster-bron levert nooit een echte vector-EPS of -SVG op (enkel het rastermasker-fallback, zie "Vector-EPS"), wat verwarrend was als iemand per ongeluk een PNG uploadde en een matige print-kwaliteit kreeg zonder dat duidelijk was waarom. PNG/JPG blijven wel gewoon geldige **export**-formaten (stap 05) — het gaat enkel om wat als bron aanvaard wordt.
 
 ## Getest

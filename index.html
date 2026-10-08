@@ -70,6 +70,9 @@ input[type=file] { display: none; }
   border: 0.5px solid #D8DAD7; border-radius: 6px; padding: 5px 7px; width: 100%; background: #fff;
 }
 .field-row input[type=color] { width: 30px; height: 26px; border: 0.5px solid #D8DAD7; border-radius: 6px; padding: 0; cursor: pointer; background: none; }
+.logo-color-row label { width: auto; min-width: 82px; display: flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.logo-color-row .swatch-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,0.1); }
+.logo-color-add { margin: -2px 0 8px 87px; }
 .cmyk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 6px; }
 .cmyk-grid div { display: flex; flex-direction: column; gap: 2px; }
 .cmyk-grid label { font-size: 9px; color: #111; opacity: 0.6; text-transform: uppercase; }
@@ -225,6 +228,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
             </datalist>
           </div>
         </div>
+        <div id="logo-color-controls" style="display:none; margin-top:10px">
+          <div class="hint-text" style="opacity:0.85; font-style:normal; margin-bottom:4px">Kleuren in "<span id="logo-colors-active-name"></span>"</div>
+          <div id="logo-color-rows"></div>
+          <div class="hint-text" id="logo-color-hint"></div>
+        </div>
         <div class="hint-text" style="margin-top:6px">Elk logo krijgt een genummerde map op basis van zijn rol, bv. 01_Primary_Logo. Typ zelf een naam of kies een suggestie. Enkel vectorbestanden (SVG/PDF) — dat garandeert een scherpe, oneindig schaalbare EPS voor print; bij een PDF wordt enkel de eerste pagina gebruikt.</div>
       </div>
 
@@ -250,7 +258,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
       <div>
         <div class="section-label">04. Kleurversies per asset</div>
         <div id="variant-checks"></div>
-        <div class="hint-text">Elke aangevinkte versie hierboven wordt automatisch gegenereerd voor elk logo: elke merkkleur als volledige herkleuring, plus zwart en wit.</div>
+        <div class="hint-text">Elke aangevinkte versie hierboven wordt automatisch gegenereerd voor elk logo: elke merkkleur als volledige herkleuring, plus zwart en wit. Meerkleurige logo’s krijgen daarnaast de versie "Origineel", met hun eigen kleuren.</div>
       </div>
 
       <div>
@@ -287,10 +295,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 </div>
 
 <script>
-let logos = [];        // {id, name, slug, role, order, type: 'svg'|'pdf', img, svgText}
+let logos = [];        // {id, name, slug, role, type: 'svg'|'pdf', img, svgText, pdfBytes, colorSvg, colors, colorMap, colorMapManual}
 let colors = [];       // {id, name, hex, c,m,y,k, pantone}
 let activeLogoId = null;
-let checkedVariants = new Set(['black', 'white']);
+let checkedVariants = new Set(['original', 'black', 'white']);
 let editingColorId = null;
 let clientName = '';
 let idCounter = 0;
@@ -324,13 +332,11 @@ function handleLogoUpload(input){
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     const defaultRole = logos.length === 0 ? 'Primary Logo' : 'Logo Mark';
     if (isPdf){
-      handlePdfUpload(file).then(({ img, pdfBytes, pageCount }) => {
-        logos.push({
+      handlePdfUpload(file).then(({ img, pdfBytes, pageCount, svgFromPdf }) => {
+        addLogo({
           id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
-          role: defaultRole, type: 'pdf', img, svgText: null, pdfBytes, pageCount
-        });
-        if (!activeLogoId) activeLogoId = id;
-        renderLogoThumbs(); renderExportTree(); updateExportState(); updateEstimate();
+          role: defaultRole, type: 'pdf', img, svgText: null, pdfBytes, pageCount, svgFromPdf
+        }, svgFromPdf);
       }).catch(err => {
         alert('Kon "' + file.name + '" niet als PDF inlezen: ' + (err.message || err));
       });
@@ -341,15 +347,10 @@ function handleLogoUpload(input){
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
         const img = new Image();
         img.onload = () => {
-          logos.push({
+          addLogo({
             id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
             role: defaultRole, type: 'svg', img, svgText
-          });
-          if (!activeLogoId) activeLogoId = id;
-          renderLogoThumbs();
-          renderExportTree();
-          updateExportState();
-          updateEstimate();
+          }, svgText);
         };
         img.onerror = () => alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?');
         img.src = dataUrl;
@@ -361,6 +362,158 @@ function handleLogoUpload(input){
   });
   input.value = '';
 }
+function addLogo(logo, vectorSvg){
+  const { svg, colors: detected } = annotateSvgColors(vectorSvg);
+  Object.assign(logo, { colorSvg: svg, colors: detected, colorMap: {}, colorMapManual: new Set() });
+  autoMatchLogoColors(logo);
+  logos.push(logo);
+  if (!activeLogoId) activeLogoId = logo.id;
+  renderLogoThumbs(); renderVariantChecks(); renderExportTree(); updateExportState(); updateEstimate();
+}
+
+/* ── MEERKLEURIGE LOGO'S ──
+   Bij upload wordt per vorm de effectieve vulkleur vastgelegd (data-tkk-fill), en elke
+   gevonden kleur wordt gekoppeld aan een merkkleur uit stap 03. Die koppeling bepaalt de
+   variant "Origineel": digitaal krijgt elke vorm de officiële hex van zijn merkkleur, print
+   de exacte CMYK. Zonder koppeling geen EPS — CMYK wordt nooit geschat vanuit hex. */
+const COLOR_MATCH_TOLERANCE = 40; // RGB-afstand; ruim genoeg voor de CMYK→RGB-omzetting van pdf.js
+function hexToRgb(hex){
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map(ch => ch + ch).join('');
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgbToHex(r, g, b){ return '#' + [r, g, b].map(n => Math.round(n).toString(16).padStart(2, '0')).join(''); }
+function colorDistance(a, b){
+  const [r1, g1, b1] = hexToRgb(a), [r2, g2, b2] = hexToRgb(b);
+  return Math.hypot(r1 - r2, g1 - g2, b1 - b2);
+}
+function annotateSvgColors(svgText){
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+  if (doc.querySelector('parsererror')) return { svg: svgText, colors: [] };
+  // Tijdelijk in de pagina hangen zodat de browser zelf de effectieve vulkleur berekent
+  // (fill-attribuut, inline style, <style>-klassen én overerving van een <g>). Synchroon
+  // toegevoegd en weer verwijderd, dus nooit zichtbaar.
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute; width:0; height:0; overflow:hidden; visibility:hidden';
+  const live = document.importNode(doc.documentElement, true);
+  host.appendChild(live);
+  document.body.appendChild(host);
+  const found = [];
+  (function walk(el){
+    const tag = el.tagName.toLowerCase();
+    if (SVG_SKIP.has(tag)) return;
+    if (SVG_DRAWABLE.has(tag)){
+      const m = getComputedStyle(el).fill.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+      if (m){ // geen match = none, of een verloop/patroon (url(…)) — geen vlakke kleur
+        const hex = rgbToHex(+m[1], +m[2], +m[3]);
+        el.setAttribute('data-tkk-fill', hex);
+        if (!found.includes(hex)) found.push(hex);
+      }
+      return;
+    }
+    for (const child of Array.from(el.children)) walk(child);
+  })(live);
+  document.body.removeChild(host);
+  return { svg: new XMLSerializer().serializeToString(live), colors: found };
+}
+function isMultiColor(logo){ return logo.colors && logo.colors.length > 1; }
+function autoMatchLogoColors(logo){
+  for (const hex of logo.colors){
+    // een handmatige keuze blijft staan — ook bewust "Niet gekoppeld" — tenzij die merkkleur intussen verwijderd is
+    if (logo.colorMapManual.has(hex)){
+      const id = logo.colorMap[hex];
+      if (id === null || colors.some(c => c.id === id)) continue;
+    }
+    let best = null, bestD = Infinity;
+    for (const c of colors){
+      const d = colorDistance(hex, c.hex);
+      if (d < bestD){ bestD = d; best = c; }
+    }
+    logo.colorMap[hex] = best && bestD <= COLOR_MATCH_TOLERANCE ? best.id : null;
+  }
+}
+function brandColorFor(logo, hex){ return colors.find(c => c.id === logo.colorMap[hex]) || null; }
+function setLogoColorMap(hex, colorId){
+  const active = logos.find(l => l.id === activeLogoId);
+  if (!active) return;
+  active.colorMap[hex] = colorId || null;
+  active.colorMapManual.add(hex);
+  renderLogoColorControls(); renderExportTree(); updateEstimate();
+}
+function prefillColorFromLogo(hex){
+  cancelColorEdit();
+  document.getElementById('col-hex').value = hex;
+  document.getElementById('col-hex-text').value = hex;
+  const nameField = document.getElementById('col-name');
+  nameField.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  nameField.focus({ preventScroll: true });
+}
+function renderLogoColorControls(){
+  const panel = document.getElementById('logo-color-controls');
+  const active = logos.find(l => l.id === activeLogoId);
+  if (!active || !isMultiColor(active)){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  document.getElementById('logo-colors-active-name').textContent = active.name;
+  const rows = document.getElementById('logo-color-rows');
+  rows.innerHTML = '';
+  active.colors.forEach((hex, i) => {
+    const mapped = brandColorFor(active, hex);
+    const row = document.createElement('div');
+    row.className = 'field-row logo-color-row';
+    row.innerHTML = `
+      <label for="logo-color-${i}"><span class="swatch-dot" style="background:${hex}"></span>${hex.toUpperCase()}</label>
+      <select id="logo-color-${i}">
+        <option value="">Niet gekoppeld</option>
+        ${colors.map(c => `<option value="${c.id}" ${mapped && mapped.id === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+      </select>`;
+    row.querySelector('select').addEventListener('change', e => setLogoColorMap(hex, e.target.value));
+    rows.appendChild(row);
+    if (!mapped){
+      const add = document.createElement('button');
+      add.className = 'small-btn logo-color-add';
+      add.textContent = 'Toevoegen in stap 03';
+      add.setAttribute('aria-label', `${hex.toUpperCase()} toevoegen als merkkleur in stap 03`);
+      add.addEventListener('click', () => prefillColorFromLogo(hex));
+      rows.appendChild(add);
+    }
+  });
+  document.getElementById('logo-color-hint').textContent = originalCmykResolver(active)
+    ? 'De versie "Origineel" gebruikt per kleur de hex (digitaal) en de exacte CMYK (print) van de gekoppelde merkkleur.'
+    : 'Koppel elke kleur aan een merkkleur uit stap 03. Zonder koppeling krijgt de versie "Origineel" geen print-EPS — CMYK wordt nooit geschat.';
+}
+function originalCmykResolver(logo){
+  // geeft een functie bronhex → [c,m,y,k] (fracties), of null zolang niet elke kleur gekoppeld is
+  if (!logo.colors.every(hex => brandColorFor(logo, hex))) return null;
+  return hex => { const c = brandColorFor(logo, hex); return [c.c/100, c.m/100, c.y/100, c.k/100]; };
+}
+function originalSvgFor(logo){
+  // SVG met per vorm de officiële hex van de gekoppelde merkkleur (of de bronkleur zolang die niet gekoppeld is)
+  const doc = new DOMParser().parseFromString(logo.colorSvg, 'image/svg+xml');
+  doc.querySelectorAll('[data-tkk-fill]').forEach(el => {
+    const src = el.getAttribute('data-tkk-fill');
+    const to = (brandColorFor(logo, src) || { hex: src }).hex;
+    el.setAttribute('fill', to);
+    el.style.setProperty('fill', to);
+    el.removeAttribute('data-tkk-fill');
+  });
+  return new XMLSerializer().serializeToString(doc);
+}
+function loadSvgImage(svgText){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
+  });
+}
+function variantsForLogo(logo, variants){
+  return variants.filter(v => v.key !== 'original' || isMultiColor(logo));
+}
+function epsCmykFor(logo, v){
+  return v.key === 'original' ? originalCmykResolver(logo) : flatCmykForVariant(v);
+}
+
 function renderLogoThumbs(){
   const wrap = document.getElementById('logo-thumbs');
   wrap.innerHTML = '';
@@ -395,6 +548,7 @@ function renderLogoThumbs(){
   } else {
     roleControls.style.display = 'none';
   }
+  renderLogoColorControls();
 }
 function setActiveLogo(id){ activeLogoId = id; renderLogoThumbs(); renderExportTree(); }
 function setActiveLogoRole(role){
@@ -409,7 +563,7 @@ function setActiveLogoRole(role){
 function removeLogo(id){
   logos = logos.filter(l => l.id !== id);
   if (activeLogoId === id) activeLogoId = logos.length ? logos[0].id : null;
-  renderLogoThumbs(); renderExportTree(); updateExportState(); updateEstimate();
+  renderLogoThumbs(); renderVariantChecks(); renderExportTree(); updateExportState(); updateEstimate();
 }
 
 /* ── KLEUREN ── */
@@ -432,6 +586,8 @@ function saveColor(){
   }
   resetColorForm();
   renderColorList();
+  logos.forEach(autoMatchLogoColors);
+  renderLogoColorControls();
   renderVariantChecks();
   updateEstimate();
 }
@@ -473,6 +629,8 @@ function removeColor(id){
   checkedVariants.delete('brand-' + id);
   if (editingColorId === id) cancelColorEdit();
   renderColorList();
+  logos.forEach(autoMatchLogoColors);
+  renderLogoColorControls();
   renderVariantChecks();
   updateEstimate();
 }
@@ -510,6 +668,11 @@ function renderColorList(){
 /* ── VARIANTEN (dynamisch: origineel + elke merkkleur + zwart/wit) ── */
 function variantList(){
   const list = [];
+  const multi = logos.find(isMultiColor);
+  if (multi){
+    const stops = multi.colors.map((hex, i, a) => `${hex} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(', ');
+    list.push({ key: 'original', label: 'Origineel', hex: null, dot: `conic-gradient(${stops})`, note: 'enkel meerkleurige logo’s' });
+  }
   colors.forEach(c => list.push({ key: 'brand-' + c.id, label: c.name, hex: c.hex, dot: c.hex }));
   list.push({ key: 'black', label: 'Zwart', hex: '#000000', dot: '#000000' });
   list.push({ key: 'white', label: 'Wit', hex: '#ffffff', dot: '#ffffff' });
@@ -522,7 +685,8 @@ function renderVariantChecks(){
     const row = document.createElement('label');
     row.className = 'check-row';
     const dot = v.dot ? `<span class="swatch-dot" style="background:${v.dot}"></span>` : '';
-    row.innerHTML = `<input type="checkbox" ${checkedVariants.has(v.key) ? 'checked' : ''} onchange="toggleVariant('${v.key}', this.checked)">${dot}${v.label}`;
+    const note = v.note ? ` <span style="opacity:0.6">— ${v.note}</span>` : '';
+    row.innerHTML = `<input type="checkbox" ${checkedVariants.has(v.key) ? 'checked' : ''} onchange="toggleVariant('${v.key}', this.checked)">${dot}${v.label}${note}`;
     wrap.appendChild(row);
   });
 }
@@ -569,7 +733,7 @@ function drawVariantToCanvas(img, targetCanvas, options){
 function buildExportTree(){
   if (!logos.length) return null;
   const clientSlug = slugify((clientName || '').trim());
-  const { variants } = computeCounts();
+  const { variants: allVariants } = computeCounts();
   const doSvg = document.getElementById('pkg-svg').checked;
   const doPng = document.getElementById('pkg-png').checked;
   const doJpg = document.getElementById('pkg-jpg').checked;
@@ -584,6 +748,7 @@ function buildExportTree(){
   const sortedLogos = logos;
   for (let i = 0; i < sortedLogos.length; i++){
     const logo = sortedLogos[i];
+    const variants = variantsForLogo(logo, allVariants);
     const folderName = String(i + 1).padStart(2, '0') + '_' + rolePart(logo.role);
     const nameBase = `${clientSlug}-${slugify(logo.role)}`;
     const logoFolder = { name: folderName, type: 'folder', children: [] };
@@ -615,7 +780,7 @@ function buildExportTree(){
       const printFiles = [];
       for (const v of variants){
         printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print-300dpi.png`, type: 'file' });
-        if (flatCmykForVariant(v)) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.eps`, type: 'file' });
+        if (epsCmykFor(logo, v)) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.eps`, type: 'file' });
       }
       if (logo.type === 'svg' && logo.svgText) printFiles.push({ name: `${nameBase}-print-vector-bron.svg`, type: 'file' });
       else if (logo.type === 'pdf' && logo.pdfBytes) printFiles.push({ name: `${nameBase}-print-bron.pdf`, type: 'file' });
@@ -929,7 +1094,7 @@ function collectPaintOps(root, M0){
     if (SVG_DRAWABLE.has(tag)){
       if (isFillableSvgEl(el, noneClasses)){
         const subpaths = shapeSubpaths(el);
-        if (subpaths && subpaths.length) ops.push({ subpaths, matrix: M2, fillRule: (el.getAttribute('fill-rule')==='evenodd') ? 'evenodd' : 'nonzero' });
+        if (subpaths && subpaths.length) ops.push({ subpaths, matrix: M2, fillRule: (el.getAttribute('fill-rule')==='evenodd') ? 'evenodd' : 'nonzero', color: el.getAttribute('data-tkk-fill') });
       }
       return;
     }
@@ -958,8 +1123,14 @@ function buildVectorEPS(svgText, cmyk, title, targetLongSidePt){
   const ops = collectPaintOps(svgEl, M0);
   if (!ops.length) throw new Error('Geen vulbare vormen gevonden in dit SVG-bestand');
 
+  // cmyk is één [c,m,y,k] voor een vlakke versie, of een functie bronhex → [c,m,y,k] voor
+  // "Origineel" (per vorm een eigen kleur, in tekenvolgorde — overlappingen blijven kloppen)
+  const cmykFor = typeof cmyk === 'function' ? op => cmyk(op.color) : () => cmyk;
   const psLines = [];
+  let lastColor = null;
   for (const op of ops){
+    const color = cmykFor(op).join(' ');
+    if (color !== lastColor){ psLines.push(`${color} setcmykcolor`); lastColor = color; }
     for (const sub of op.subpaths){
       for (const seg of sub){
         if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} moveto`); }
@@ -972,7 +1143,6 @@ function buildVectorEPS(svgText, cmyk, title, targetLongSidePt){
     }
     psLines.push(op.fillRule==='evenodd' ? 'eofill' : 'fill');
   }
-  const [c,m,ye,k] = cmyk;
   const wPt = Math.round(outW), hPt = Math.round(outH);
   return `%!PS-Adobe-3.0 EPSF-3.0
 %%BoundingBox: 0 0 ${wPt} ${hPt}
@@ -981,7 +1151,6 @@ function buildVectorEPS(svgText, cmyk, title, targetLongSidePt){
 %%Title: (${title})
 %%EndComments
 gsave
-${c} ${m} ${ye} ${k} setcmykcolor
 ${psLines.join('\n')}
 grestore
 %%EOF
@@ -1056,7 +1225,31 @@ async function handlePdfUpload(file){
   const dataUrl = canvas.toDataURL('image/png');
   const img = new Image();
   await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = dataUrl; });
-  return { img, pdfBytes, pageCount: doc.numPages };
+  return { img, pdfBytes, pageCount: doc.numPages, svgFromPdf: pdfOpsToSvg(ops, outW, outH) };
+}
+
+/* ── SVG uit een PDF-bron ── Dezelfde vectorpaden als voor de EPS (collectPdfPaintOps), maar
+   geschreven als SVG <path d="…"> met per vorm de bronkleur uit de PDF. Wordt bij upload één
+   keer aangemaakt en daarna behandeld als een geüploade SVG: recolorSvgText() voor de
+   monochrome versies, de kleurkoppeling voor "Origineel". */
+function pdfOpsToSvg(ops, outW, outH){
+  const pathEls = ops.map(op => {
+    let d = '';
+    for (const sub of op.subpaths){
+      for (const seg of sub){
+        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); d += `M${psNum(x)} ${psNum(y)} `; }
+        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); d += `L${psNum(x)} ${psNum(y)} `; }
+        else if (seg.type==='C'){
+          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
+          d += `C${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} `;
+        } else if (seg.type==='Z'){ d += 'Z '; }
+      }
+    }
+    const rule = op.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+    return `<path d="${d.trim()}" fill="${op.color}"${rule}/>`;
+  }).join('\n  ');
+  const w = psNum(outW), h = psNum(outH);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n  ${pathEls}\n</svg>\n`;
 }
 
 function decodePdfPathBuffer(buf){
@@ -1076,14 +1269,16 @@ function decodePdfPathBuffer(buf){
 }
 
 function collectPdfPaintOps(fnArray, argsArray, OPS, M0){
-  const ops = []; const stack = []; let curM = M0;
+  // pdf.js zet elke vulkleur (RGB, grijs én CMYK) om naar setFillRGBColor met een hexstring
+  const ops = []; const stack = []; let curM = M0; let curFill = '#000000';
   for (let i = 0; i < fnArray.length; i++){
     const fn = fnArray[i], args = argsArray[i];
-    if (fn === OPS.save) stack.push(curM);
-    else if (fn === OPS.restore){ if (stack.length) curM = stack.pop(); }
+    if (fn === OPS.save) stack.push([curM, curFill]);
+    else if (fn === OPS.restore){ if (stack.length) [curM, curFill] = stack.pop(); }
     else if (fn === OPS.transform) curM = matMultiply(curM, args);
-    else if (fn === OPS.paintFormXObjectBegin){ stack.push(curM); if (args && args[0]) curM = matMultiply(curM, args[0]); }
-    else if (fn === OPS.paintFormXObjectEnd){ if (stack.length) curM = stack.pop(); }
+    else if (fn === OPS.setFillRGBColor){ if (typeof args[0] === 'string') curFill = args[0].toLowerCase(); }
+    else if (fn === OPS.paintFormXObjectBegin){ stack.push([curM, curFill]); if (args && args[0]) curM = matMultiply(curM, args[0]); }
+    else if (fn === OPS.paintFormXObjectEnd){ if (stack.length) [curM, curFill] = stack.pop(); }
     else if (fn === OPS.constructPath){
       const paintFn = args[0];
       const buf = args[1] && args[1][0];
@@ -1092,7 +1287,7 @@ function collectPdfPaintOps(fnArray, argsArray, OPS, M0){
       if (!subpaths.length) continue;
       const isEvenOdd = (paintFn === OPS.eoFill || paintFn === OPS.eoFillStroke || paintFn === OPS.closeEOFillStroke);
       const isFillPaint = (paintFn === OPS.fill || paintFn === OPS.eoFill || paintFn === OPS.fillStroke || paintFn === OPS.eoFillStroke || paintFn === OPS.closeFillStroke || paintFn === OPS.closeEOFillStroke);
-      if (isFillPaint) ops.push({ subpaths, matrix: curM, fillRule: isEvenOdd ? 'evenodd' : 'nonzero' });
+      if (isFillPaint) ops.push({ subpaths, matrix: curM, fillRule: isEvenOdd ? 'evenodd' : 'nonzero', color: curFill });
     }
   }
   return ops;
@@ -1143,47 +1338,6 @@ ${psLines.join('\n')}
 grestore
 %%EOF
 `;
-}
-
-/* ── SVG: uit een PDF-bron ── Hergebruikt exact dezelfde vectorpaden als buildVectorEPSFromPDF
-   (via collectPdfPaintOps), maar schrijft ze als SVG <path d="…">-data i.p.v. PostScript. Het
-   resultaat is een gewone SVG-string zonder ingebakken kleur (fill="#000000"), zodat de
-   bestaande recolorSvgText()-functie 'm net als een geüploade SVG-bron per kleurvariant kan
-   herkleuren — geen aparte kleurlogica nodig voor PDF-afkomstige SVG's. */
-async function buildVectorSVGFromPDF(pdfBytes, targetLongSidePx){
-  const pdfjsLib = await loadPdfJs();
-  const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
-  const page = await doc.getPage(1);
-  const [minX, minY, maxX, maxY] = page.view;
-  const vbW = maxX - minX, vbH = maxY - minY;
-  if (!vbW || !vbH) throw new Error('PDF-pagina heeft geen bruikbare afmetingen');
-
-  const target = targetLongSidePx || 1000;
-  const S = vbW >= vbH ? target/vbW : target/vbH;
-  const outW = vbW*S, outH = vbH*S;
-  const M0 = [S, 0, 0, -S, -S*minX, S*minY + outH]; // y-flip, zelfde als de raster-preview in handlePdfUpload
-
-  const opList = await page.getOperatorList();
-  const ops = collectPdfPaintOps(opList.fnArray, opList.argsArray, pdfjsLib.OPS, M0);
-  if (!ops.length) throw new Error('Geen vulbare vormen gevonden op de eerste pagina van dit PDF-bestand');
-
-  const pathEls = ops.map(op => {
-    let d = '';
-    for (const sub of op.subpaths){
-      for (const seg of sub){
-        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); d += `M${psNum(x)} ${psNum(y)} `; }
-        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); d += `L${psNum(x)} ${psNum(y)} `; }
-        else if (seg.type==='C'){
-          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
-          d += `C${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} `;
-        } else if (seg.type==='Z'){ d += 'Z '; }
-      }
-    }
-    const rule = op.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
-    return `<path d="${d.trim()}" fill="#000000"${rule}/>`;
-  }).join('\n  ');
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${psNum(outW)} ${psNum(outH)}">\n  ${pathEls}\n</svg>\n`;
 }
 
 /* ── EPS: RASTER-MASKER fallback (voor SVG/PDF-logo's waarvan de vectorpaden niet uitgelezen
@@ -1314,15 +1468,15 @@ function computeCounts(){
   const doPrint = document.getElementById('pkg-print').checked;
   let total = 0;
   logos.forEach(l => {
-    const hasSvg = l.type === 'svg' || l.type === 'pdf';
-    if (doSvg && hasSvg) total += variants.length;
-    if (doPng) total += variants.length * PNG_SIZES.length;
-    if (doJpg) total += variants.length * bgCount;
-    if (doWebp) total += variants.length;
+    const lv = variantsForLogo(l, variants);
+    if (doSvg) total += lv.length;
+    if (doPng) total += lv.length * PNG_SIZES.length;
+    if (doJpg) total += lv.length * bgCount;
+    if (doWebp) total += lv.length;
     if (doPrint){
-      total += variants.length; // print PNGs
-      total += variants.length; // EPS met exacte CMYK voor elke kleurversie
-      if (hasSvg || l.type === 'pdf') total += 1; // bron-kopie (vector-SVG of PDF)
+      total += lv.length; // print PNGs
+      total += lv.filter(v => epsCmykFor(l, v)).length; // EPS met exacte CMYK
+      total += 1; // bron-kopie (vector-SVG of PDF)
     }
   });
   return { total, variants, bgCount };
@@ -1378,48 +1532,45 @@ async function exportZip(){
     const folder = zip.folder(folderName);
     const digital = folder.folder('01_RGB_Digital');
     const nameBase = `${clientSlug}-${slugify(logo.role)}`;
+    const logoVariants = variantsForLogo(logo, variants);
+    const monoSvg = logo.type === 'svg' ? logo.svgText : logo.svgFromPdf;
+    // "Origineel" vertrekt van een eigen rasterbeeld in de officiële merkkleuren (geen tint);
+    // alle andere versies tinten het bronbeeld volledig in één kleur.
+    const originalSvg = logoVariants.some(v => v.key === 'original') ? originalSvgFor(logo) : null;
+    const originalImg = originalSvg ? await loadSvgImage(originalSvg) : null;
+    const raster = (v, size, bg, pad) => v.key === 'original'
+      ? buildCanvas(originalImg, size, null, bg, pad)
+      : buildCanvas(logo.img, size, v.hex, bg, pad);
 
-    if (doSvg && logo.type === 'svg' && logo.svgText){
+    if (doSvg){
       const svgFolder = digital.folder('01_SVG');
-      for (const v of variants){
-        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, recolorSvgText(logo.svgText, v.hex));
-      }
-    } else if (doSvg && logo.type === 'pdf' && logo.pdfBytes){
-      try{
-        const baseSvg = await buildVectorSVGFromPDF(logo.pdfBytes, 1000);
-        const svgFolder = digital.folder('01_SVG');
-        for (const v of variants){
-          svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, recolorSvgText(baseSvg, v.hex));
-        }
-      } catch(e){
-        console.warn(`Kon geen SVG genereren voor "${logo.name}": ${e.message || e}`);
+      for (const v of logoVariants){
+        const svg = v.key === 'original' ? originalSvg : recolorSvgText(monoSvg, v.hex);
+        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, svg);
       }
     }
     if (doPng){
       const pngFolder = digital.folder('02_PNG_Transparent');
-      for (const v of variants){
+      for (const v of logoVariants){
         for (const size of PNG_SIZES){
-          const c = buildCanvas(logo.img, size, v.hex, null, 0.08);
-          const blob = await canvasToBlob(c, 'image/png');
+          const blob = await canvasToBlob(raster(v, size, null, 0.08), 'image/png');
           pngFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-${String(size).padStart(4,"0")}px.png`, blob);
         }
       }
     }
     if (doJpg){
       const jpgFolder = digital.folder('03_JPG');
-      for (const v of variants){
+      for (const v of logoVariants){
         for (const bg of jpgBgs){
-          const c = buildCanvas(logo.img, 2000, v.hex, bg.hex, 0.1);
-          const blob = await canvasToBlob(c, 'image/jpeg', 0.92);
+          const blob = await canvasToBlob(raster(v, 2000, bg.hex, 0.1), 'image/jpeg', 0.92);
           jpgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-op-${bg.name}.jpg`, blob);
         }
       }
     }
     if (doWebp){
       const webpFolder = digital.folder('04_WEBP');
-      for (const v of variants){
-        const c = buildCanvas(logo.img, 2048, v.hex, null, 0.08);
-        const blob = await canvasToBlob(c, 'image/webp', 0.92);
+      for (const v of logoVariants){
+        const blob = await canvasToBlob(raster(v, 2048, null, 0.08), 'image/webp', 0.92);
         if (blob) webpFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.webp`, blob);
       }
     }
@@ -1429,20 +1580,24 @@ async function exportZip(){
       let vectorFailed = false, vectorFailReason = '';
       const epsVariants = [];
       const canTryVector = (logo.type === 'svg' && !!logo.svgText) || (logo.type === 'pdf' && !!logo.pdfBytes);
-      for (const v of variants){
-        const c = buildCanvas(logo.img, PRINT_SIZE, v.hex, null, 0.06);
-        const blob = await canvasToBlob(c, 'image/png');
+      for (const v of logoVariants){
+        const blob = await canvasToBlob(raster(v, PRINT_SIZE, null, 0.06), 'image/png');
         printFolder.file(`${nameBase}-${slugify(v.label)}-print-300dpi.png`, blob);
 
-        const cmyk = flatCmykForVariant(v);
+        const cmyk = epsCmykFor(logo, v);
         if (!cmyk) continue;
+        const title = `${nameBase}-${slugify(v.label)}-print`;
         let eps = null, usedVector = false;
-        if (canTryVector && !vectorFailed){
+        if (v.key === 'original'){
+          // Meerkleurig kan enkel als vector: het rastermasker-vangnet kent maar één kleur
+          try { eps = buildVectorEPS(logo.colorSvg, cmyk, title, 720); usedVector = true; }
+          catch(e){ console.warn(`Geen meerkleurige EPS voor "${logo.name}": ${e.message || e}`); continue; }
+        } else if (canTryVector && !vectorFailed){
           try {
             if (logo.type === 'svg'){
-              eps = buildVectorEPS(logo.svgText, cmyk, `${nameBase}-${slugify(v.label)}-print`, 720);
+              eps = buildVectorEPS(logo.svgText, cmyk, title, 720);
             } else {
-              eps = await buildVectorEPSFromPDF(logo.pdfBytes, cmyk, `${nameBase}-${slugify(v.label)}-print`, 720);
+              eps = await buildVectorEPSFromPDF(logo.pdfBytes, cmyk, title, 720);
             }
             usedVector = true;
           } catch(e){
@@ -1453,7 +1608,7 @@ async function exportZip(){
           if (!mask){ mask = extractMask(logo.img, EPS_MASK_SIZE, 0.08); maskFallbackUsed = mask.usedFallback; }
           eps = buildFlatEPS({
             maskWidth: mask.maskWidth, maskHeight: mask.maskHeight, bits: mask.bits,
-            cmyk, title: `${nameBase}-${slugify(v.label)}-print`, dpi: 300
+            cmyk, title, dpi: 300
           });
         }
         printFolder.file(`${nameBase}-${slugify(v.label)}-print.eps`, eps);

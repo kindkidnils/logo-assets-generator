@@ -24,8 +24,8 @@ Vanilla HTML/CSS/JS + Canvas API, gebouwd op `assets/template.html` uit de `tkk-
 
 Browsers kunnen RGB niet betrouwbaar naar CMYK omrekenen (geen ICC-profiel) — dus in plaats van te proberen te converteren, wordt de vorm van het logo (silhouet) apart vastgelegd en met PostScript's `setcmykcolor` ingekleurd met de CMYK-waarde die de gebruiker letterlijk heeft ingevuld. Twee routes:
 
-- **Normaal geval**: de vectorpaden van de geüploade SVG/PDF worden zelf omgezet naar PostScript-paden (`moveto`/`lineto`/`curveto`) — een echt, oneindig schaalbaar vectorbestand. Voor PDF gebeurt dit via pdf.js' operator-list (de al-uitgepakte tekencommando's), niet via een eigen PDF-parser.
-- **Fallback bij parse-mislukking**: als de vectorpaden van een specifiek logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, een verloop, of een clip-path — zie de beperkingen bij `collectPdfPaintOps`/`collectPaintOps`), valt de EPS voor dat logo terug op een hogeresolutie rastermasker (1500px) ingekleurd via `imagemask` — nog steeds de exacte CMYK-waarde, maar geen oneindig schaalbaar vectorpad. Dit is een foutopvang, geen normaal exportpad — sinds de upload-stap enkel nog SVG/PDF aanvaardt (zie "Bewust niet") is er geen raster-bronbestand meer dat hier standaard doorheen zou moeten.
+- **Normaal geval**: de vectorpaden van de geüploade SVG/PDF worden zelf omgezet naar PostScript-paden (`moveto`/`lineto`/`curveto`) — een echt, oneindig schaalbaar vectorbestand. Beide brontypes lopen via `buildVectorEPS()`: een PDF wordt bij upload al omgezet naar een SVG (`logo.svgFromPdf`, zie hieronder), via pdf.js' operator-list (de al-uitgepakte tekencommando's), niet via een eigen PDF-parser.
+- **Fallback bij parse-mislukking**: als de vectorpaden van een specifiek logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, een verloop, of een clip-path — zie de beperkingen bij `collectPdfPaintOps`/`collectPaintOps`), valt de EPS voor dat logo terug op een hogeresolutie rastermasker (1500px) ingekleurd via `imagemask` — nog steeds de exacte CMYK-waarde, maar geen oneindig schaalbaar vectorpad, en (als enige bestand) niet bijgesneden tot het logo. Dit is een foutopvang, geen normaal exportpad — sinds de upload-stap enkel nog SVG/PDF aanvaardt (zie "Bewust niet") is er geen raster-bronbestand meer dat hier standaard doorheen zou moeten.
 
 Getest met Ghostscript: de gerenderde CMYK-waarden kwamen exact overeen met de ingevoerde waarden (tot op 8-bit-afrondingsniveau).
 
@@ -39,12 +39,27 @@ Elke vorm krijgt bij upload zijn effectieve vulkleur als `data-tkk-fill`-attribu
 - **Variant "Origineel"** (enkel voor meerkleurige logo's): digitaal krijgt elke vorm de **hex** van zijn merkkleur (`originalSvgFor()`, en daaruit ook PNG/JPG/WebP — zonder tint), print krijgt een EPS met per vorm de **exacte CMYK** in tekenvolgorde, zodat overlappingen kloppen (`buildVectorEPS()` met een kleurfunctie i.p.v. één CMYK).
 - **Geen EPS zonder volledige koppeling**: zolang één kleur niet gekoppeld is, komt er geen `origineel-print.eps` (ook niet in de boomweergave). Het rastermasker-vangnet kent maar één kleur, dus voor "Origineel" is er geen fallback.
 
+## Passend formaat (geen vierkant, geen witruimte)
+
+Elk bestand wordt bijgesneden tot de rand van de getekende vormen, zodat een logo in een lay-out exact op zijn rand uitgelijnd kan worden. Vroeger kwam alles in een vierkant met marge, wat bij een breed logo (bv. 2000×2000 voor een woordmerk) vooral lege ruimte opleverde.
+
+- **Begrenzing** (`logoBBox()` → `logo.bbox`, één keer bij upload): de exacte omtrek van alle vulvormen, met bij curves de werkelijke uitersten van de bézier in plaats van de controlepunten (`opsBBox()`). Lijnen (strokes) tellen mee met de halve lijndikte. De begrenzing blijft binnen de originele viewBox, zodat vormen buiten het artboard (die in het bronbestand onzichtbaar waren) niet opduiken.
+- **SVG**: dezelfde inhoud, met `viewBox`/`width`/`height` op de begrenzing (`cropSvg()`). Uitzondering: `print-vector-bron.svg` en `print-bron.pdf` zijn ongewijzigde kopieën van het bronbestand.
+- **PNG/JPG/WebP en print-PNG**: gerenderd vanuit de bijgesneden vector-SVG, rechtstreeks op de doelgrootte (`renderRaster()`), dus ook voor PDF-bronnen scherp — vroeger werd daar een tussenbeeld van 2000px opgeschaald. De maten (`PNG_SIZES`, `JPG_SIZE`, `WEBP_SIZE`, `PRINT_SIZE`) gelden voor de **langste zijde**; de andere zijde volgt uit de verhouding, afgerond op hele pixels. `preserveAspectRatio="none"` vermijdt dat die afronding een halve pixel witruimte aan de randen laat.
+- **EPS**: BoundingBox = de begrenzing, geschaald naar 720pt op de langste zijde, naar boven afgerond op hele punten (de HiResBoundingBox is exact).
+
+Na de wijziging getest met een volledige export (Comova-SVG + Tigron-PDF, 88 bestanden): elk raster- en EPS-bestand raakt het logo aan alle vier de randen (EPS gerenderd met Ghostscript).
+
+## JPG-achtergronden
+
+Een JPG heeft geen transparantie: een logo in dezelfde kleur als de achtergrond (wit op wit, zwart op zwart) gaf een effen vlak zonder zichtbaar logo. Zulke combinaties worden overgeslagen (`jpgBgsFor()`), ook in de boomweergave en de schatting. Criterium: WCAG-contrastverhouding < 1.3 tussen logokleur en achtergrond — bewust laag, zodat enkel onzichtbare combinaties wegvallen en bv. geel op wit (≈ 1.35) of donkergroen op zwart (≈ 1.5) nog wél gemaakt worden; dat blijft een keuze van de gebruiker. Voor "Origineel" volstaat het dat één van de kleuren zichtbaar is.
+
 ## State shape
 
 ```js
 logo = {
   id, name, role, type: 'svg' | 'pdf',
-  img,            // rasterbeeld voor preview + monochrome tint (PDF: zwart silhouet)
+  img,            // rasterbeeld voor de thumbnail en het rastermasker-vangnet van de EPS
   svgText,        // SVG-bron (enkel type 'svg')
   pdfBytes,       // PDF-bron (enkel type 'pdf')
   svgFromPdf,     // vectorpaden uit de PDF als SVG, met bronkleuren (enkel type 'pdf')
@@ -52,6 +67,7 @@ logo = {
   colors,         // ['#083213', '#fd6f3b'] — unieke vulkleuren in tekenvolgorde
   colorMap,       // { '#083213': 'color-3', '#fd6f3b': null } — bronhex → merkkleur-id
   colorMapManual, // Set van bronhexen die de gebruiker zelf koppelde
+  bbox,           // { x, y, w, h } — rand van het logo in viewBox-coördinaten (passend formaat)
 }
 ```
 
@@ -65,7 +81,7 @@ Patroon: `{klantnaam}-{rol}-{kleurversie}-{digitaal|print}-{detail}.{ext}`, bv. 
 
 - Rol staat **altijd** in de bestandsnaam (niet enkel de mapnaam) — een bestand moet ook begrijpelijk zijn als het uit zijn map wordt gehaald.
 - `digitaal`/`print` staat expliciet in elke bestandsnaam — voorkomt dat een klant een digitaal (RGB, lage/schermresolutie) bestand per ongeluk voor drukwerk gebruikt, ook zonder de mapstructuur-context.
-- PNG-formaten zijn opgepad tot 4 cijfers (`0256px`, `0512px`, `1024px`, `2048px`) zodat ze alfabetisch (zoals Finder/Verkenner standaard sorteert) ook numeriek correct sorteren — zonder opvulling sorteren "1024"/"2048" vóór "256"/"512".
+- PNG-maten staan voor de langste zijde (zie "Passend formaat") en zijn opgepad tot 4 cijfers (`0256px`, `0512px`, `1024px`, `2048px`) zodat ze alfabetisch (zoals Finder/Verkenner standaard sorteert) ook numeriek correct sorteren — zonder opvulling sorteren "1024"/"2048" vóór "256"/"512".
 - Bekende open vraag, nog niet beslist: bestandsnamen zijn nu Nederlandstalig (`digitaal`, `print`, `op-wit`). Voor internationale klanten kan Engels een betere keuze zijn — bewust nog niet omgezet, wacht op een beslissing.
 
 ## Bewust niet (v1)

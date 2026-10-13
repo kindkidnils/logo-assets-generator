@@ -263,8 +263,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
       <div>
         <div class="section-label">05. Pakket</div>
-        <label class="check-row"><input type="checkbox" id="pkg-svg" checked onchange="updateEstimate()"> SVG (indien brondbestand vector is)</label>
-        <label class="check-row"><input type="checkbox" id="pkg-png" checked onchange="updateEstimate()"> PNG transparant (4 formaten)</label>
+        <label class="check-row"><input type="checkbox" id="pkg-svg" checked onchange="updateEstimate()"> SVG</label>
+        <label class="check-row"><input type="checkbox" id="pkg-png" checked onchange="updateEstimate()"> PNG transparant (256, 512, 1024 en 2048 px)</label>
         <label class="check-row"><input type="checkbox" id="pkg-jpg" checked onchange="updateEstimate()"> JPG (kleur × achtergrond)</label>
         <label class="check-row"><input type="checkbox" id="pkg-webp" checked onchange="updateEstimate()"> WebP</label>
         <div class="field-row" style="margin-top:4px">
@@ -272,6 +272,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
         </div>
         <label class="check-row"><input type="checkbox" id="bg-white" checked onchange="updateEstimate()"> Wit</label>
         <label class="check-row"><input type="checkbox" id="bg-black" onchange="updateEstimate()"> Zwart</label>
+        <div class="hint-text">Elk bestand is bijgesneden tot de rand van het logo, zonder witruimte; de maten gelden voor de langste zijde. Een JPG waarin logo en achtergrond dezelfde kleur hebben (bv. wit op wit) wordt overgeslagen.</div>
         <hr class="divider" style="margin:10px 0">
         <label class="check-row"><input type="checkbox" id="pkg-print" checked onchange="updateEstimate()"> Print-map (300 dpi PNG + CMYK EPS per vlakke kleurversie)</label>
         <div class="hint-text">De EPS gebruikt de exacte CMYK-waarden uit stap 03 (geen RGB-schatting) en bevat ECHTE VECTORPADEN — oneindig schaalbaar (bij PDF wordt pdf.js gebruikt, vanaf een CDN, en enkel de eerste pagina). Als de vectorpaden van een logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, of een verloop), valt de EPS voor dat logo terug op een hoge-resolutie rastermasker.</div>
@@ -302,8 +303,11 @@ let checkedVariants = new Set(['original', 'black', 'white']);
 let editingColorId = null;
 let clientName = '';
 let idCounter = 0;
+// Alle maten gelden voor de langste zijde van het (bijgesneden) logo
 const PNG_SIZES = [256, 512, 1024, 2048];
-const PRINT_SIZE = 3000;
+const JPG_SIZE = 2000;
+const WEBP_SIZE = 2048;
+const PRINT_SIZE = 3000; // 10 inch bij 300 dpi
 
 function onClientNameChange(){
   clientName = document.getElementById('client-name').value;
@@ -363,8 +367,9 @@ function handleLogoUpload(input){
   input.value = '';
 }
 function addLogo(logo, vectorSvg){
-  const { svg, colors: detected } = annotateSvgColors(vectorSvg);
-  Object.assign(logo, { colorSvg: svg, colors: detected, colorMap: {}, colorMapManual: new Set() });
+  const { svg, colors: detected, maxStroke } = annotateSvgColors(vectorSvg);
+  Object.assign(logo, { colorSvg: svg, colors: detected, colorMap: {}, colorMapManual: new Set(),
+    bbox: logoBBox(svg, maxStroke / 2) });
   autoMatchLogoColors(logo);
   logos.push(logo);
   if (!activeLogoId) activeLogoId = logo.id;
@@ -390,7 +395,7 @@ function colorDistance(a, b){
 }
 function annotateSvgColors(svgText){
   const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
-  if (doc.querySelector('parsererror')) return { svg: svgText, colors: [] };
+  if (doc.querySelector('parsererror')) return { svg: svgText, colors: [], maxStroke: 0 };
   // Tijdelijk in de pagina hangen zodat de browser zelf de effectieve vulkleur berekent
   // (fill-attribuut, inline style, <style>-klassen én overerving van een <g>). Synchroon
   // toegevoegd en weer verwijderd, dus nooit zichtbaar.
@@ -400,11 +405,14 @@ function annotateSvgColors(svgText){
   host.appendChild(live);
   document.body.appendChild(host);
   const found = [];
+  let maxStroke = 0;
   (function walk(el){
     const tag = el.tagName.toLowerCase();
     if (SVG_SKIP.has(tag)) return;
     if (SVG_DRAWABLE.has(tag)){
-      const m = getComputedStyle(el).fill.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+      const cs = getComputedStyle(el);
+      if (cs.stroke !== 'none') maxStroke = Math.max(maxStroke, parseFloat(cs.strokeWidth) || 0);
+      const m = cs.fill.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
       if (m){ // geen match = none, of een verloop/patroon (url(…)) — geen vlakke kleur
         const hex = rgbToHex(+m[1], +m[2], +m[3]);
         el.setAttribute('data-tkk-fill', hex);
@@ -415,7 +423,7 @@ function annotateSvgColors(svgText){
     for (const child of Array.from(el.children)) walk(child);
   })(live);
   document.body.removeChild(host);
-  return { svg: new XMLSerializer().serializeToString(live), colors: found };
+  return { svg: new XMLSerializer().serializeToString(live), colors: found, maxStroke };
 }
 function isMultiColor(logo){ return logo.colors && logo.colors.length > 1; }
 function autoMatchLogoColors(logo){
@@ -696,37 +704,118 @@ function toggleVariant(key, checked){
   updateEstimate();
 }
 
-/* ── PREVIEW & RECOLORING ── */
-function drawVariantToCanvas(img, targetCanvas, options){
-  const size = options.size;
-  targetCanvas.width = size; targetCanvas.height = size;
-  const ctx = targetCanvas.getContext('2d');
-  ctx.clearRect(0,0,size,size);
-  const pad = size * (options.padRatio ?? 0.1);
-  const maxW = size - pad*2, maxH = size - pad*2;
-  const ratio = Math.min(maxW / img.width, maxH / img.height);
-  const w = img.width * ratio, h = img.height * ratio;
-  const x = (size - w) / 2, y = (size - h) / 2;
-
-  // Het logo eerst apart tekenen/tinten en pas daarna over de achtergrond heen plaatsen —
-  // 'source-in' kleurt anders ALLES wat al ondoorzichtig is op het canvas, inclusief een net
-  // getekende achtergrondvulling, niet enkel de vorm van het logo zelf.
-  if (options.variantColor){
-    const logoCanvas = document.createElement('canvas');
-    logoCanvas.width = size; logoCanvas.height = size;
-    const lctx = logoCanvas.getContext('2d');
-    lctx.drawImage(img, x, y, w, h);
-    lctx.globalCompositeOperation = 'source-in';
-    lctx.fillStyle = options.variantColor;
-    lctx.fillRect(0,0,size,size);
-    if (options.bgColor){ ctx.fillStyle = options.bgColor; ctx.fillRect(0,0,size,size); }
-    ctx.drawImage(logoCanvas, 0, 0);
-  } else {
-    if (options.bgColor){ ctx.fillStyle = options.bgColor; ctx.fillRect(0,0,size,size); }
-    ctx.drawImage(img, x, y, w, h);
+/* ── PASSEND FORMAAT ──
+   Elk bestand wordt bijgesneden tot de rand van de getekende vormen, zonder witruimte of
+   vierkant kader, zodat het logo in een lay-out exact op zijn rand uitgelijnd kan worden.
+   De begrenzing wordt één keer bij upload berekend (logo.bbox, in de coördinaten van de
+   viewBox) en daarna door alle formaten gedeeld: SVG, PNG/JPG/WebP en EPS. */
+function opsBBox(ops){
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+  // Bij curves tellen de werkelijke uitersten van de bézier, niet de controlepunten:
+  // die liggen vaak buiten de vorm en zouden ongewenste witruimte opleveren.
+  const extremaT = (p0, p1, p2, p3) => {
+    const a = -p0 + 3*p1 - 3*p2 + p3, b = 2*(p0 - 2*p1 + p2), c = p1 - p0;
+    if (Math.abs(a) < 1e-12) return Math.abs(b) < 1e-12 ? [] : [-c / b];
+    const d = b*b - 4*a*c;
+    if (d < 0) return [];
+    const r = Math.sqrt(d);
+    return [(-b + r) / (2*a), (-b - r) / (2*a)];
+  };
+  const at = (p0, p1, p2, p3, t) => { const u = 1 - t; return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3; };
+  for (const op of ops){
+    for (const sub of op.subpaths){
+      let cx = 0, cy = 0;
+      for (const seg of sub){
+        if (seg.type === 'M' || seg.type === 'L'){ [cx, cy] = matApply(op.matrix, seg.x, seg.y); add(cx, cy); }
+        else if (seg.type === 'C'){
+          const [ax, ay] = matApply(op.matrix, seg.x1, seg.y1), [bx, by] = matApply(op.matrix, seg.x2, seg.y2), [ex, ey] = matApply(op.matrix, seg.x, seg.y);
+          for (const t of [...extremaT(cx, ax, bx, ex), ...extremaT(cy, ay, by, ey)]){
+            if (t > 0 && t < 1) add(at(cx, ax, bx, ex, t), at(cy, ay, by, ey, t));
+          }
+          add(ex, ey); cx = ex; cy = ey;
+        }
+      }
+    }
   }
-  return targetCanvas;
+  return isFinite(x0) && x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
+function svgViewBox(svgEl){
+  const vb = (svgEl.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+  if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) return { x: vb[0], y: vb[1], w: vb[2], h: vb[3] };
+  return { x: 0, y: 0, w: parseFloat(svgEl.getAttribute('width')) || 100, h: parseFloat(svgEl.getAttribute('height')) || 100 };
+}
+function logoBBox(svgText, strokePad){
+  // Vulvormen bepalen de rand; lijnen (strokes) worden met de halve lijndikte meegerekend.
+  // Het resultaat blijft binnen de originele viewBox: vormen buiten het artboard (bv. een
+  // vergeten hulpobject naast het artboard) waren onzichtbaar en mogen dat blijven.
+  // Zonder vulvormen valt de rand terug op de volledige viewBox.
+  const svgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
+  const vb = svgViewBox(svgEl);
+  const box = opsBBox(collectPaintOps(svgEl, [1, 0, 0, 1, 0, 0]));
+  if (!box) return vb;
+  const x0 = Math.max(vb.x, box.x - strokePad), y0 = Math.max(vb.y, box.y - strokePad);
+  const x1 = Math.min(vb.x + vb.w, box.x + box.w + strokePad), y1 = Math.min(vb.y + vb.h, box.y + box.h + strokePad);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : vb;
+}
+function cropSvg(svgText, box, width, height, stretch = false){
+  // width/height: weergavegrootte; standaard de natuurlijke maat van het bijgesneden logo.
+  // stretch: viewBox exact op width×height afbeelden (enkel voor rasterbestanden, zie renderRaster).
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+  const svg = doc.documentElement;
+  svg.setAttribute('viewBox', [box.x, box.y, box.w, box.h].map(psNum).join(' '));
+  svg.setAttribute('width', psNum(width ?? box.w));
+  svg.setAttribute('height', psNum(height ?? box.h));
+  if (stretch) svg.setAttribute('preserveAspectRatio', 'none');
+  return new XMLSerializer().serializeToString(doc);
+}
+function fitLongSide(box, longSide){
+  return box.w >= box.h
+    ? [longSide, Math.max(1, Math.round(longSide * box.h / box.w))]
+    : [Math.max(1, Math.round(longSide * box.w / box.h)), longSide];
+}
+async function renderRaster(svgText, box, longSide, bgHex){
+  // Rendert rechtstreeks vanuit de vector-SVG op de doelgrootte (geen opschaling van een
+  // tussenbeeld), bijgesneden tot de rand van het logo. bgHex = effen achtergrond (JPG).
+  const [w, h] = fitLongSide(box, longSide);
+  // De hoogte (of breedte) is afgerond op hele pixels; zonder preserveAspectRatio="none" zou
+  // de SVG daardoor proportioneel schalen en een halve pixel witruimte laten aan twee kanten.
+  // De vervorming door die afronding is kleiner dan een halve pixel.
+  const img = await loadSvgImage(cropSvg(svgText, box, w, h, true));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  if (bgHex){ ctx.fillStyle = bgHex; ctx.fillRect(0, 0, w, h); }
+  ctx.drawImage(img, 0, 0, w, h);
+  return c;
+}
+
+/* ── JPG-achtergronden ──
+   Een JPG heeft geen transparantie. Valt de logokleur (bijna) samen met de achtergrond —
+   wit op wit, zwart op zwart — dan levert dat enkel een effen vlak op. Zulke combinaties
+   worden overgeslagen. Drempel: WCAG-contrastverhouding 1.3 — bewust laag, zodat enkel
+   onzichtbare combinaties wegvallen en bv. geel op wit (≈1.35) nog wel gemaakt wordt. */
+const MIN_JPG_CONTRAST = 1.3;
+function relLuminance(hex){
+  const [r, g, b] = hexToRgb(hex).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126*r + 0.7152*g + 0.0722*b;
+}
+function contrastRatio(a, b){
+  const [hi, lo] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function selectedJpgBgs(){
+  const bgs = [];
+  if (document.getElementById('bg-white').checked) bgs.push({ name: 'wit', hex: '#ffffff' });
+  if (document.getElementById('bg-black').checked) bgs.push({ name: 'zwart', hex: '#000000' });
+  return bgs.length ? bgs : [{ name: 'wit', hex: '#ffffff' }];
+}
+function jpgBgsFor(logo, v, bgs){
+  // "Origineel" blijft behouden zolang minstens één van zijn kleuren zichtbaar is
+  const fg = v.key === 'original' ? logo.colors.map(hex => (brandColorFor(logo, hex) || { hex }).hex) : [v.hex];
+  return bgs.filter(bg => fg.some(hex => contrastRatio(hex, bg.hex) >= MIN_JPG_CONTRAST));
+}
+
 /* ── Export-boomstructuur — toont live wat er in de ZIP komt, i.p.v. een render van het logo.
    Bouwt exact dezelfde mapnamen/bestandsnamen als exportZip() hieronder, maar puur als tekst
    (geen canvas/blob-werk), dus goedkoop genoeg om bij elke wijziging opnieuw te tekenen. */
@@ -739,10 +828,7 @@ function buildExportTree(){
   const doJpg = document.getElementById('pkg-jpg').checked;
   const doWebp = document.getElementById('pkg-webp').checked;
   const doPrint = document.getElementById('pkg-print').checked;
-  const jpgBgs = [];
-  if (document.getElementById('bg-white').checked) jpgBgs.push('wit');
-  if (document.getElementById('bg-black').checked) jpgBgs.push('zwart');
-  if (!jpgBgs.length) jpgBgs.push('wit');
+  const jpgBgs = selectedJpgBgs();
 
   const root = { name: `${clientSlug || 'klant'}-logo-asset-pack.zip`, type: 'zip', children: [] };
   const sortedLogos = logos;
@@ -766,7 +852,7 @@ function buildExportTree(){
       }
       if (doJpg){
         const files = [];
-        for (const v of variants) for (const bg of jpgBgs) files.push({ name: `${nameBase}-${slugify(v.label)}-digitaal-op-${bg}.jpg`, type: 'file' });
+        for (const v of variants) for (const bg of jpgBgsFor(logo, v, jpgBgs)) files.push({ name: `${nameBase}-${slugify(v.label)}-digitaal-op-${bg.name}.jpg`, type: 'file' });
         digital.children.push({ name: '03_JPG', type: 'folder', children: files });
       }
       if (doWebp){
@@ -1104,24 +1190,19 @@ function collectPaintOps(root, M0){
   return ops;
 }
 function psNum(n){ return (Math.round(n*1000)/1000).toString(); }
-function buildVectorEPS(svgText, cmyk, title, targetLongSidePt){
+function buildVectorEPS(svgText, cmyk, title, targetLongSidePt, box){
   const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
   if (doc.querySelector('parsererror')) throw new Error('SVG kon niet gelezen worden');
-  const svgEl = doc.documentElement;
-  const vb = svgEl.getAttribute('viewBox');
-  let minX=0, minY=0, vbW, vbH;
-  if (vb){ const p = vb.trim().split(/[\s,]+/).map(Number); [minX,minY,vbW,vbH] = p; }
-  let w = svgEl.getAttribute('width'), h = svgEl.getAttribute('height');
-  w = w ? parseFloat(w) : undefined; h = h ? parseFloat(h) : undefined;
-  if (!vbW){ vbW = w || 100; vbH = h || 100; }
-  if (!vbW || !vbH) throw new Error('SVG heeft geen bruikbare afmetingen');
-
-  const target = targetLongSidePt || 720;
-  const S = vbW >= vbH ? target/vbW : target/vbH;
-  const outW = vbW*S, outH = vbH*S;
-  const M0 = [S, 0, 0, -S, -S*minX, S*minY+outH];
-  const ops = collectPaintOps(svgEl, M0);
+  const ops = collectPaintOps(doc.documentElement, [1, 0, 0, 1, 0, 0]);
   if (!ops.length) throw new Error('Geen vulbare vormen gevonden in dit SVG-bestand');
+
+  // Bijsnijden tot de rand van het logo (zie "Passend formaat"), geschaald naar de gevraagde
+  // langste zijde, met de y-as omgedraaid: SVG telt naar beneden, PostScript naar boven.
+  box = box || opsBBox(ops);
+  const S = (targetLongSidePt || 720) / Math.max(box.w, box.h);
+  const outW = box.w * S, outH = box.h * S;
+  const F = [S, 0, 0, -S, -S * box.x, S * (box.y + box.h)];
+  for (const op of ops) op.matrix = matMultiply(F, op.matrix);
 
   // cmyk is één [c,m,y,k] voor een vlakke versie, of een functie bronhex → [c,m,y,k] voor
   // "Origineel" (per vorm een eigen kleur, in tekenvolgorde — overlappingen blijven kloppen)
@@ -1143,7 +1224,7 @@ function buildVectorEPS(svgText, cmyk, title, targetLongSidePt){
     }
     psLines.push(op.fillRule==='evenodd' ? 'eofill' : 'fill');
   }
-  const wPt = Math.round(outW), hPt = Math.round(outH);
+  const wPt = Math.ceil(outW), hPt = Math.ceil(outH); // BoundingBox in hele punten, naar boven afgerond
   return `%!PS-Adobe-3.0 EPSF-3.0
 %%BoundingBox: 0 0 ${wPt} ${hPt}
 %%HiResBoundingBox: 0 0 ${psNum(outW)} ${psNum(outH)}
@@ -1293,52 +1374,6 @@ function collectPdfPaintOps(fnArray, argsArray, OPS, M0){
   return ops;
 }
 
-async function buildVectorEPSFromPDF(pdfBytes, cmyk, title, targetLongSidePt){
-  const pdfjsLib = await loadPdfJs();
-  const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
-  const page = await doc.getPage(1);
-  const [minX, minY, maxX, maxY] = page.view;
-  const vbW = maxX - minX, vbH = maxY - minY;
-  if (!vbW || !vbH) throw new Error('PDF-pagina heeft geen bruikbare afmetingen');
-
-  const target = targetLongSidePt || 720;
-  const S = vbW >= vbH ? target/vbW : target/vbH;
-  const outW = vbW*S, outH = vbH*S;
-  const M0 = [S, 0, 0, S, -S*minX, -S*minY]; // geen y-flip nodig: PDF-ruimte is al y-omhoog, net als PostScript
-
-  const opList = await page.getOperatorList();
-  const ops = collectPdfPaintOps(opList.fnArray, opList.argsArray, pdfjsLib.OPS, M0);
-  if (!ops.length) throw new Error('Geen vulbare vormen gevonden op de eerste pagina van dit PDF-bestand');
-
-  const psLines = [];
-  for (const op of ops){
-    for (const sub of op.subpaths){
-      for (const seg of sub){
-        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} moveto`); }
-        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} lineto`); }
-        else if (seg.type==='C'){
-          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
-          psLines.push(`${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} curveto`);
-        } else if (seg.type==='Z'){ psLines.push('closepath'); }
-      }
-    }
-    psLines.push(op.fillRule==='evenodd' ? 'eofill' : 'fill');
-  }
-  const [c,m,ye,k] = cmyk;
-  const wPt = Math.round(outW), hPt = Math.round(outH);
-  return `%!PS-Adobe-3.0 EPSF-3.0
-%%BoundingBox: 0 0 ${wPt} ${hPt}
-%%HiResBoundingBox: 0 0 ${psNum(outW)} ${psNum(outH)}
-%%Creator: TKK Logo Assets Generator
-%%Title: (${title})
-%%EndComments
-gsave
-${c} ${m} ${ye} ${k} setcmykcolor
-${psLines.join('\n')}
-grestore
-%%EOF
-`;
-}
 
 /* ── EPS: RASTER-MASKER fallback (voor SVG/PDF-logo's waarvan de vectorpaden niet uitgelezen
    konden worden, bv. tekst die niet naar paden is omgezet, een verloop, of een clip-path) ──
@@ -1460,7 +1495,7 @@ function recolorSvgText(svgText, hex){
 /* ── SCHATTING ── */
 function computeCounts(){
   const variants = variantList().filter(v => checkedVariants.has(v.key));
-  const bgCount = (document.getElementById('bg-white').checked ? 1 : 0) + (document.getElementById('bg-black').checked ? 1 : 0) || 1;
+  const jpgBgs = selectedJpgBgs();
   const doSvg = document.getElementById('pkg-svg').checked;
   const doPng = document.getElementById('pkg-png').checked;
   const doJpg = document.getElementById('pkg-jpg').checked;
@@ -1471,7 +1506,7 @@ function computeCounts(){
     const lv = variantsForLogo(l, variants);
     if (doSvg) total += lv.length;
     if (doPng) total += lv.length * PNG_SIZES.length;
-    if (doJpg) total += lv.length * bgCount;
+    if (doJpg) total += lv.reduce((n, v) => n + jpgBgsFor(l, v, jpgBgs).length, 0);
     if (doWebp) total += lv.length;
     if (doPrint){
       total += lv.length; // print PNGs
@@ -1479,7 +1514,7 @@ function computeCounts(){
       total += 1; // bron-kopie (vector-SVG of PDF)
     }
   });
-  return { total, variants, bgCount };
+  return { total, variants };
 }
 function updateEstimate(){
   if (!document.getElementById('estimate-text')) return;
@@ -1500,27 +1535,19 @@ function updateExportState(){
 function canvasToBlob(canvas, type, quality){
   return new Promise(res => canvas.toBlob(b => res(b), type || 'image/png', quality));
 }
-function buildCanvas(img, size, variantColor, bgColor, padRatio){
-  const c = document.createElement('canvas');
-  drawVariantToCanvas(img, c, { size, variantColor, bgColor, padRatio });
-  return c;
-}
 function setStatus(t){ document.getElementById('status-text').textContent = t; }
 
 async function exportZip(){
   if (!logos.length || !clientName.trim()) return;
   const zip = new JSZip();
   const clientSlug = slugify(clientName.trim());
-  const { variants, bgCount } = computeCounts();
+  const { variants } = computeCounts();
   const doSvg = document.getElementById('pkg-svg').checked;
   const doPng = document.getElementById('pkg-png').checked;
   const doJpg = document.getElementById('pkg-jpg').checked;
   const doWebp = document.getElementById('pkg-webp').checked;
   const doPrint = document.getElementById('pkg-print').checked;
-  const jpgBgs = [];
-  if (document.getElementById('bg-white').checked) jpgBgs.push({ name: 'wit', hex: '#ffffff' });
-  if (document.getElementById('bg-black').checked) jpgBgs.push({ name: 'zwart', hex: '#000000' });
-  if (!jpgBgs.length) jpgBgs.push({ name: 'wit', hex: '#ffffff' });
+  const jpgBgs = selectedJpgBgs();
 
   setStatus('Bezig met genereren…');
   document.getElementById('export-btn').disabled = true;
@@ -1534,26 +1561,23 @@ async function exportZip(){
     const nameBase = `${clientSlug}-${slugify(logo.role)}`;
     const logoVariants = variantsForLogo(logo, variants);
     const monoSvg = logo.type === 'svg' ? logo.svgText : logo.svgFromPdf;
-    // "Origineel" vertrekt van een eigen rasterbeeld in de officiële merkkleuren (geen tint);
-    // alle andere versies tinten het bronbeeld volledig in één kleur.
-    const originalSvg = logoVariants.some(v => v.key === 'original') ? originalSvgFor(logo) : null;
-    const originalImg = originalSvg ? await loadSvgImage(originalSvg) : null;
-    const raster = (v, size, bg, pad) => v.key === 'original'
-      ? buildCanvas(originalImg, size, null, bg, pad)
-      : buildCanvas(logo.img, size, v.hex, bg, pad);
+    const box = logo.bbox;
+    // Elke versie is een SVG: "Origineel" in de officiële merkkleuren, de andere volledig in
+    // één kleur. Alle rasterformaten worden daaruit gerenderd, bijgesneden tot het logo.
+    const svgFor = v => v.key === 'original' ? originalSvgFor(logo) : recolorSvgText(monoSvg, v.hex);
+    const raster = (v, longSide, bgHex) => renderRaster(svgFor(v), box, longSide, bgHex);
 
     if (doSvg){
       const svgFolder = digital.folder('01_SVG');
       for (const v of logoVariants){
-        const svg = v.key === 'original' ? originalSvg : recolorSvgText(monoSvg, v.hex);
-        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, svg);
+        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, cropSvg(svgFor(v), box));
       }
     }
     if (doPng){
       const pngFolder = digital.folder('02_PNG_Transparent');
       for (const v of logoVariants){
         for (const size of PNG_SIZES){
-          const blob = await canvasToBlob(raster(v, size, null, 0.08), 'image/png');
+          const blob = await canvasToBlob(await raster(v, size), 'image/png');
           pngFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-${String(size).padStart(4,"0")}px.png`, blob);
         }
       }
@@ -1561,8 +1585,8 @@ async function exportZip(){
     if (doJpg){
       const jpgFolder = digital.folder('03_JPG');
       for (const v of logoVariants){
-        for (const bg of jpgBgs){
-          const blob = await canvasToBlob(raster(v, 2000, bg.hex, 0.1), 'image/jpeg', 0.92);
+        for (const bg of jpgBgsFor(logo, v, jpgBgs)){
+          const blob = await canvasToBlob(await raster(v, JPG_SIZE, bg.hex), 'image/jpeg', 0.92);
           jpgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-op-${bg.name}.jpg`, blob);
         }
       }
@@ -1570,7 +1594,7 @@ async function exportZip(){
     if (doWebp){
       const webpFolder = digital.folder('04_WEBP');
       for (const v of logoVariants){
-        const blob = await canvasToBlob(raster(v, 2048, null, 0.08), 'image/webp', 0.92);
+        const blob = await canvasToBlob(await raster(v, WEBP_SIZE), 'image/webp', 0.92);
         if (blob) webpFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.webp`, blob);
       }
     }
@@ -1579,9 +1603,8 @@ async function exportZip(){
       let mask = null, maskFallbackUsed = false;
       let vectorFailed = false, vectorFailReason = '';
       const epsVariants = [];
-      const canTryVector = (logo.type === 'svg' && !!logo.svgText) || (logo.type === 'pdf' && !!logo.pdfBytes);
       for (const v of logoVariants){
-        const blob = await canvasToBlob(raster(v, PRINT_SIZE, null, 0.06), 'image/png');
+        const blob = await canvasToBlob(await raster(v, PRINT_SIZE), 'image/png');
         printFolder.file(`${nameBase}-${slugify(v.label)}-print-300dpi.png`, blob);
 
         const cmyk = epsCmykFor(logo, v);
@@ -1590,15 +1613,11 @@ async function exportZip(){
         let eps = null, usedVector = false;
         if (v.key === 'original'){
           // Meerkleurig kan enkel als vector: het rastermasker-vangnet kent maar één kleur
-          try { eps = buildVectorEPS(logo.colorSvg, cmyk, title, 720); usedVector = true; }
+          try { eps = buildVectorEPS(logo.colorSvg, cmyk, title, 720, box); usedVector = true; }
           catch(e){ console.warn(`Geen meerkleurige EPS voor "${logo.name}": ${e.message || e}`); continue; }
-        } else if (canTryVector && !vectorFailed){
+        } else if (!vectorFailed){
           try {
-            if (logo.type === 'svg'){
-              eps = buildVectorEPS(logo.svgText, cmyk, title, 720);
-            } else {
-              eps = await buildVectorEPSFromPDF(logo.pdfBytes, cmyk, title, 720);
-            }
+            eps = buildVectorEPS(monoSvg, cmyk, title, 720, box);
             usedVector = true;
           } catch(e){
             vectorFailed = true; vectorFailReason = e.message || String(e);

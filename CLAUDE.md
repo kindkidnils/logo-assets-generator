@@ -52,7 +52,7 @@ Na de wijziging getest met een volledige export (Comova-SVG + Tigron-PDF, 88 bes
 
 ## JPG-achtergronden
 
-Een JPG heeft geen transparantie: een logo in dezelfde kleur als de achtergrond (wit op wit, zwart op zwart) gaf een effen vlak zonder zichtbaar logo. Zulke combinaties worden overgeslagen (`jpgBgsFor()`), ook in de boomweergave en de schatting. Criterium: WCAG-contrastverhouding < 1.3 tussen logokleur en achtergrond — bewust laag, zodat enkel onzichtbare combinaties wegvallen en bv. geel op wit (≈ 1.35) of donkergroen op zwart (≈ 1.5) nog wél gemaakt worden; dat blijft een keuze van de gebruiker. Voor "Origineel" volstaat het dat één van de kleuren zichtbaar is.
+Een JPG heeft geen transparantie: een logo met te weinig contrast tegenover de achtergrond gaf een effen of onbruikbaar vlak (wit op wit, zwart op zwart, een donker logo op zwart). Zulke combinaties worden overgeslagen (`jpgBgsFor()`), ook in de boomweergave en de schatting. Criterium: WCAG-contrastverhouding < 2.0 tussen logokleur en achtergrond (`MIN_JPG_CONTRAST`). Daaronder vallen bv. donkergroen op zwart (≈ 1.5) en geel op wit (≈ 1.35); oranje op wit (≈ 2.8) blijft. Voor "Origineel" moet élke kleur van het logo de drempel halen — anders valt een deel van het logo weg (bv. de donkergroene tekst van Comova op zwart).
 
 ## State shape
 

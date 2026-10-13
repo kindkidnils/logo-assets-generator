@@ -41,9 +41,10 @@ input[type=file] { display: none; }
 .thumb-grid::-webkit-scrollbar-track { background: #D8DAD7; border-radius: 99px; }
 .thumb-grid::-webkit-scrollbar-thumb { background: #111; border-radius: 99px; }
 .thumb-wrap { display: flex; flex-direction: column; flex-shrink: 0; width: 72px; scroll-snap-align: start; position: relative; }
-.thumb-remove { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; background: #111; color: #fff; border-radius: 50%; border: 1.5px solid #fff; cursor: pointer; font-size: 13px; line-height: 1; display: none; align-items: center; justify-content: center; z-index: 3; padding: 0; }
-.thumb-wrap:hover .thumb-remove, .thumb-wrap:focus-within .thumb-remove { display: flex; }
-.thumb { aspect-ratio: 1; border-radius: 8px; border: 0.5px solid #D8DAD7; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #F2F3F1; transition: border-color 0.15s; padding: 7px; position: relative; }
+.thumb-remove { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; background: #111; color: #fff; border-radius: 50%; border: 1.5px solid #fff; cursor: pointer; font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center; z-index: 3; padding: 0; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+/* Verborgen via opacity, niet via display:none: zo blijft de knop in de tabvolgorde. */
+.thumb-wrap:hover .thumb-remove, .thumb-wrap:focus-within .thumb-remove, .thumb-remove:focus-visible { opacity: 1; pointer-events: auto; }
+.thumb { width: 100%; font-family: inherit; aspect-ratio: 1; border-radius: 8px; border: 0.5px solid #D8DAD7; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #F2F3F1; transition: border-color 0.15s; padding: 7px; position: relative; }
 .thumb:hover { border-color: #999; }
 .thumb.active { border: 1.5px solid #111; }
 .thumb img { width: 100%; height: 100%; object-fit: contain; }
@@ -111,7 +112,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .thumb:focus-visible, .upload-zone:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  #sidebar, .thumb, .upload-zone, .btn, .small-btn { transition: none !important; }
+  #sidebar, .thumb, .thumb-remove, .upload-zone, .btn, .small-btn { transition: none !important; }
 }
 
 #main { position: absolute; top: var(--topnav-height); right: 0; bottom: 0; left: 308px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; padding: 12px; }
@@ -529,11 +530,11 @@ function renderLogoThumbs(){
     const t = document.createElement('div');
     t.className = 'thumb-wrap';
     t.innerHTML = `
-      <div class="thumb ${l.id === activeLogoId ? 'active' : ''}" role="button" tabindex="0" aria-pressed="${l.id === activeLogoId}" aria-label="${l.name} selecteren (rol: ${l.role})" onclick="setActiveLogo('${l.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); setActiveLogo('${l.id}');}">
-        <img src="${l.img.src}" alt="Logo: ${l.name}">
-        <div class="thumb-role-badge">${l.role}</div>
-        <button class="thumb-remove" aria-label="${l.name} verwijderen" onclick="event.stopPropagation(); removeLogo('${l.id}')">×</button>
-      </div>
+      <button type="button" class="thumb ${l.id === activeLogoId ? 'active' : ''}" data-logo-id="${l.id}" aria-pressed="${l.id === activeLogoId}" aria-label="${l.name} selecteren (rol: ${l.role})" onclick="setActiveLogo('${l.id}')">
+        <img src="${l.img.src}" alt="">
+        <span class="thumb-role-badge">${l.role}</span>
+      </button>
+      <button type="button" class="thumb-remove" aria-label="${l.name} verwijderen" onclick="removeLogo('${l.id}')">×</button>
       <div class="thumb-label">${l.name}</div>`;
     wrap.appendChild(t);
   });
@@ -558,20 +559,32 @@ function renderLogoThumbs(){
   }
   renderLogoColorControls();
 }
-function setActiveLogo(id){ activeLogoId = id; renderLogoThumbs(); renderExportTree(); }
+function focusLogoThumb(id){
+  // Na het opnieuw tekenen van de thumbnails de focus terugzetten, anders springt die naar het begin van de pagina
+  const el = (id && document.querySelector(`#logo-thumbs .thumb[data-logo-id="${id}"]`)) || document.querySelector('#logo-thumbs .thumb-add') || document.querySelector('#sidebar-body .upload-zone');
+  if (el) el.focus();
+}
+function setActiveLogo(id){
+  activeLogoId = id; renderLogoThumbs(); renderExportTree();
+  focusLogoThumb(id);
+}
 function setActiveLogoRole(role){
   const active = logos.find(l => l.id === activeLogoId);
   if (!active) return;
   active.role = role;
   const thumbs = document.querySelectorAll('#logo-thumbs .thumb-wrap');
   const idx = logos.indexOf(active);
-  if (thumbs[idx]) thumbs[idx].querySelector('.thumb-role-badge').textContent = role;
+  if (thumbs[idx]){
+    thumbs[idx].querySelector('.thumb-role-badge').textContent = role;
+    thumbs[idx].querySelector('.thumb').setAttribute('aria-label', `${active.name} selecteren (rol: ${role})`);
+  }
   renderExportTree();
 }
 function removeLogo(id){
   logos = logos.filter(l => l.id !== id);
   if (activeLogoId === id) activeLogoId = logos.length ? logos[0].id : null;
   renderLogoThumbs(); renderVariantChecks(); renderExportTree(); updateExportState(); updateEstimate();
+  focusLogoThumb(activeLogoId);
 }
 
 /* ── KLEUREN ── */

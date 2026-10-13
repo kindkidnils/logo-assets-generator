@@ -100,6 +100,8 @@ Volledige exportflow herhaaldelijk end-to-end getest in een gesimuleerde DOM-omg
 
 Volgt de WCAG-tabel uit SKILL.md: 24×24px icoon-knoppen (niet 17×17px), zichtbare focus-states, `aria-label` op elk icoon-only element, `for`/`id`-gekoppelde labels, geen `opacity` voor disabled-states (vaste gedempte kleuren + `pointer-events: none`), `prefers-reduced-motion` gerespecteerd, betekenisvolle `alt`-teksten.
 
+Thumbnails zijn echte `<button>`-elementen; de verwijderknop staat ernaast in `.thumb-wrap`, niet erin. Een knop binnen een element dat zelf als knop werkt, is ongeldig, en in de praktijk ving de thumbnail Enter op, waardoor de verwijderknop met het toetsenbord niet werkte. De verwijderknop wordt verborgen via `opacity` (niet `display: none`) en verschijnt bij hover en focus. Na selecteren of verwijderen zet `focusLogoThumb()` de focus terug in de thumbnail-rij, zodat die niet naar het begin van de pagina springt.
+
 ## Deployment
 
 Repo: [`kindkidnils/logo-assets-generator`](https://github.com/kindkidnils/logo-assets-generator) — gehost via GitHub Pages op de `main`-branch, root. Enkelvoudig HTML-bestand (`index.html`), geen build step.

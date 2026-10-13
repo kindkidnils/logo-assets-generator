@@ -265,7 +265,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
       <div>
         <div class="section-label">05. Pakket</div>
         <label class="check-row"><input type="checkbox" id="pkg-svg" checked onchange="updateEstimate()"> SVG</label>
-        <label class="check-row"><input type="checkbox" id="pkg-png" checked onchange="updateEstimate()"> PNG transparant (256, 512, 1024 en 2048 px)</label>
+        <label class="check-row"><input type="checkbox" id="pkg-png" checked onchange="updateEstimate()"> PNG</label>
         <label class="check-row"><input type="checkbox" id="pkg-jpg" checked onchange="updateEstimate()"> JPG (kleur × achtergrond)</label>
         <label class="check-row"><input type="checkbox" id="pkg-webp" checked onchange="updateEstimate()"> WebP</label>
         <div class="field-row" style="margin-top:4px">
@@ -275,8 +275,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
         <label class="check-row"><input type="checkbox" id="bg-black" onchange="updateEstimate()"> Zwart</label>
         <div class="hint-text">Elk bestand is bijgesneden tot de rand van het logo, zonder witruimte; de maten gelden voor de langste zijde. Een JPG waarin het logo te weinig contrast heeft met de achtergrond (bv. wit op wit, of een donker logo op zwart) wordt overgeslagen.</div>
         <hr class="divider" style="margin:10px 0">
-        <label class="check-row"><input type="checkbox" id="pkg-print" checked onchange="updateEstimate()"> Print-map (300 dpi PNG + CMYK EPS per vlakke kleurversie)</label>
-        <div class="hint-text">De EPS gebruikt de exacte CMYK-waarden uit stap 03 (geen RGB-schatting) en bevat ECHTE VECTORPADEN — oneindig schaalbaar (bij PDF wordt pdf.js gebruikt, vanaf een CDN, en enkel de eerste pagina). Als de vectorpaden van een logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, of een verloop), valt de EPS voor dat logo terug op een hoge-resolutie rastermasker.</div>
+        <label class="check-row"><input type="checkbox" id="pkg-print" checked onchange="updateEstimate()"> Print-map (EPS + PDF in CMYK)</label>
+        <div class="hint-text">EPS en PDF gebruiken de exacte CMYK-waarden uit stap 03 (geen RGB-schatting) en bevatten ECHTE VECTORPADEN — oneindig schaalbaar (bij PDF wordt pdf.js gebruikt, vanaf een CDN, en enkel de eerste pagina). Als de vectorpaden van een logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, of een verloop), valt de EPS voor dat logo terug op een hoge-resolutie rastermasker.</div>
         <div class="estimate-text" id="estimate-text"></div>
       </div>
 
@@ -304,11 +304,11 @@ let checkedVariants = new Set(['original', 'black', 'white']);
 let editingColorId = null;
 let clientName = '';
 let idCounter = 0;
-// Alle maten gelden voor de langste zijde van het (bijgesneden) logo
-const PNG_SIZES = [256, 512, 1024, 2048];
+// Alle maten gelden voor de langste zijde van het (bijgesneden) logo. Eén grote PNG volstaat:
+// web, presentaties en Office verkleinen zelf.
+const PNG_SIZE = 3000;
 const JPG_SIZE = 2000;
 const WEBP_SIZE = 2048;
-const PRINT_SIZE = 3000; // 10 inch bij 300 dpi
 
 function onClientNameChange(){
   clientName = document.getElementById('client-name').value;
@@ -370,7 +370,9 @@ function handleLogoUpload(input){
 function addLogo(logo, vectorSvg){
   const { svg, colors: detected, maxStroke } = annotateSvgColors(vectorSvg);
   Object.assign(logo, { colorSvg: svg, colors: detected, colorMap: {}, colorMapManual: new Set(),
-    bbox: logoBBox(svg, maxStroke / 2) });
+    bbox: logoBBox(svg, maxStroke / 2),
+    // zonder vulvormen geen vector-PDF; de EPS valt dan terug op het rastermasker
+    hasVector: collectPaintOps(new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement, [1, 0, 0, 1, 0, 0]).length > 0 });
   autoMatchLogoColors(logo);
   logos.push(logo);
   if (!activeLogoId) activeLogoId = logo.id;
@@ -520,7 +522,9 @@ function variantsForLogo(logo, variants){
   return variants.filter(v => v.key !== 'original' || isMultiColor(logo));
 }
 function epsCmykFor(logo, v){
-  return v.key === 'original' ? originalCmykResolver(logo) : flatCmykForVariant(v);
+  // "Origineel" kan enkel als vector: het rastermasker-vangnet kent maar één kleur
+  if (v.key === 'original') return logo.hasVector ? originalCmykResolver(logo) : null;
+  return flatCmykForVariant(v);
 }
 
 function renderLogoThumbs(){
@@ -861,8 +865,8 @@ function buildExportTree(){
       }
       if (doPng){
         const files = [];
-        for (const v of variants) for (const size of PNG_SIZES) files.push({ name: `${nameBase}-${slugify(v.label)}-digitaal-${String(size).padStart(4,"0")}px.png`, type: 'file' });
-        digital.children.push({ name: '02_PNG_Transparent', type: 'folder', children: files });
+        for (const v of variants) files.push({ name: `${nameBase}-${slugify(v.label)}-digitaal.png`, type: 'file' });
+        digital.children.push({ name: '02_PNG', type: 'folder', children: files });
       }
       if (doJpg){
         const files = [];
@@ -879,8 +883,9 @@ function buildExportTree(){
     if (doPrint){
       const printFiles = [];
       for (const v of variants){
-        printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print-300dpi.png`, type: 'file' });
-        if (epsCmykFor(logo, v)) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.eps`, type: 'file' });
+        if (!epsCmykFor(logo, v)) continue;
+        printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.eps`, type: 'file' });
+        if (logo.hasVector) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.pdf`, type: 'file' });
       }
       if (logo.type === 'svg' && logo.svgText) printFiles.push({ name: `${nameBase}-print-vector-bron.svg`, type: 'file' });
       else if (logo.type === 'pdf' && logo.pdfBytes) printFiles.push({ name: `${nameBase}-print-bron.pdf`, type: 'file' });
@@ -1204,40 +1209,51 @@ function collectPaintOps(root, M0){
   return ops;
 }
 function psNum(n){ return (Math.round(n*1000)/1000).toString(); }
-function buildVectorEPS(svgText, cmyk, title, targetLongSidePt, box){
+/* ── Vectorbestanden voor print: EPS en PDF ──
+   Beide formaten gebruiken dezelfde paden, bijgesneden tot de rand van het logo (zie
+   "Passend formaat"), met de exacte CMYK uit stap 03. Enkel de namen van de
+   tekenoperatoren verschillen; vectorDrawing() bouwt de inhoud, de twee functies eronder
+   verpakken die als EPS of als PDF. */
+const PS_SYNTAX  = { m: 'moveto', l: 'lineto', c: 'curveto', h: 'closepath', f: 'fill', fEO: 'eofill', cmyk: 'setcmykcolor' };
+const PDF_SYNTAX = { m: 'm', l: 'l', c: 'c', h: 'h', f: 'f', fEO: 'f*', cmyk: 'k' };
+function vectorDrawing(svgText, cmyk, targetLongSidePt, box, syntax){
   const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
   if (doc.querySelector('parsererror')) throw new Error('SVG kon niet gelezen worden');
   const ops = collectPaintOps(doc.documentElement, [1, 0, 0, 1, 0, 0]);
   if (!ops.length) throw new Error('Geen vulbare vormen gevonden in dit SVG-bestand');
 
-  // Bijsnijden tot de rand van het logo (zie "Passend formaat"), geschaald naar de gevraagde
-  // langste zijde, met de y-as omgedraaid: SVG telt naar beneden, PostScript naar boven.
+  // Geschaald naar de gevraagde langste zijde, met de y-as omgedraaid: SVG telt naar
+  // beneden, PostScript en PDF naar boven.
   box = box || opsBBox(ops);
   const S = (targetLongSidePt || 720) / Math.max(box.w, box.h);
   const outW = box.w * S, outH = box.h * S;
   const F = [S, 0, 0, -S, -S * box.x, S * (box.y + box.h)];
-  for (const op of ops) op.matrix = matMultiply(F, op.matrix);
 
   // cmyk is één [c,m,y,k] voor een vlakke versie, of een functie bronhex → [c,m,y,k] voor
   // "Origineel" (per vorm een eigen kleur, in tekenvolgorde — overlappingen blijven kloppen)
   const cmykFor = typeof cmyk === 'function' ? op => cmyk(op.color) : () => cmyk;
-  const psLines = [];
+  const lines = [];
   let lastColor = null;
   for (const op of ops){
+    const M = matMultiply(F, op.matrix);
     const color = cmykFor(op).join(' ');
-    if (color !== lastColor){ psLines.push(`${color} setcmykcolor`); lastColor = color; }
+    if (color !== lastColor){ lines.push(`${color} ${syntax.cmyk}`); lastColor = color; }
     for (const sub of op.subpaths){
       for (const seg of sub){
-        if (seg.type==='M'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} moveto`); }
-        else if (seg.type==='L'){ const [x,y]=matApply(op.matrix,seg.x,seg.y); psLines.push(`${psNum(x)} ${psNum(y)} lineto`); }
+        if (seg.type==='M'){ const [x,y]=matApply(M,seg.x,seg.y); lines.push(`${psNum(x)} ${psNum(y)} ${syntax.m}`); }
+        else if (seg.type==='L'){ const [x,y]=matApply(M,seg.x,seg.y); lines.push(`${psNum(x)} ${psNum(y)} ${syntax.l}`); }
         else if (seg.type==='C'){
-          const [x1,y1]=matApply(op.matrix,seg.x1,seg.y1), [x2,y2]=matApply(op.matrix,seg.x2,seg.y2), [x,y]=matApply(op.matrix,seg.x,seg.y);
-          psLines.push(`${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} curveto`);
-        } else if (seg.type==='Z'){ psLines.push('closepath'); }
+          const [x1,y1]=matApply(M,seg.x1,seg.y1), [x2,y2]=matApply(M,seg.x2,seg.y2), [x,y]=matApply(M,seg.x,seg.y);
+          lines.push(`${psNum(x1)} ${psNum(y1)} ${psNum(x2)} ${psNum(y2)} ${psNum(x)} ${psNum(y)} ${syntax.c}`);
+        } else if (seg.type==='Z'){ lines.push(syntax.h); }
       }
     }
-    psLines.push(op.fillRule==='evenodd' ? 'eofill' : 'fill');
+    lines.push(op.fillRule==='evenodd' ? syntax.fEO : syntax.f);
   }
+  return { body: lines.join('\n'), outW, outH };
+}
+function buildVectorEPS(svgText, cmyk, title, targetLongSidePt, box){
+  const { body, outW, outH } = vectorDrawing(svgText, cmyk, targetLongSidePt, box, PS_SYNTAX);
   const wPt = Math.ceil(outW), hPt = Math.ceil(outH); // BoundingBox in hele punten, naar boven afgerond
   return `%!PS-Adobe-3.0 EPSF-3.0
 %%BoundingBox: 0 0 ${wPt} ${hPt}
@@ -1246,10 +1262,36 @@ function buildVectorEPS(svgText, cmyk, title, targetLongSidePt, box){
 %%Title: (${title})
 %%EndComments
 gsave
-${psLines.join('\n')}
+${body}
 grestore
 %%EOF
 `;
+}
+function buildVectorPDF(svgText, cmyk, title, targetLongSidePt, box){
+  // Minimale PDF 1.4 met één pagina ter grootte van het logo (MediaBox = rand van het logo).
+  // De xref-tabel vraagt de exacte byte-positie van elk object; alle inhoud is ASCII, dus
+  // tekens = bytes (de titel is een slug).
+  const { body, outW, outH } = vectorDrawing(svgText, cmyk, targetLongSidePt, box, PDF_SYNTAX);
+  const box4 = `[0 0 ${psNum(outW)} ${psNum(outH)}]`;
+  const esc = t => t.replace(/[\\()]/g, ch => '\\' + ch).replace(/[^\x20-\x7e]/g, '');
+  const objects = [
+    `<< /Type /Catalog /Pages 2 0 R >>`,
+    `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`,
+    `<< /Type /Page /Parent 2 0 R /MediaBox ${box4} /TrimBox ${box4} /Resources << >> /Contents 4 0 R >>`,
+    `<< /Length ${body.length} >>\nstream\n${body}\nendstream`,
+    `<< /Title (${esc(title)}) /Creator (TKK Logo Assets Generator) /Producer (TKK Logo Assets Generator) >>`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((obj, i) => {
+    const at = pdf.length;
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+    return at;
+  });
+  const xrefAt = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 5 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`;
+  return pdf;
 }
 
 /* ── PDF: laden via pdf.js (Mozilla), voor zowel voorbeeld/raster-export als echte vectorpaden ──
@@ -1519,12 +1561,13 @@ function computeCounts(){
   logos.forEach(l => {
     const lv = variantsForLogo(l, variants);
     if (doSvg) total += lv.length;
-    if (doPng) total += lv.length * PNG_SIZES.length;
+    if (doPng) total += lv.length;
     if (doJpg) total += lv.reduce((n, v) => n + jpgBgsFor(l, v, jpgBgs).length, 0);
     if (doWebp) total += lv.length;
     if (doPrint){
-      total += lv.length; // print PNGs
-      total += lv.filter(v => epsCmykFor(l, v)).length; // EPS met exacte CMYK
+      const withCmyk = lv.filter(v => epsCmykFor(l, v)).length;
+      total += withCmyk;                        // EPS met exacte CMYK
+      if (l.hasVector) total += withCmyk;       // PDF met exacte CMYK
       total += 1; // bron-kopie (vector-SVG of PDF)
     }
   });
@@ -1588,12 +1631,10 @@ async function exportZip(){
       }
     }
     if (doPng){
-      const pngFolder = digital.folder('02_PNG_Transparent');
+      const pngFolder = digital.folder('02_PNG');
       for (const v of logoVariants){
-        for (const size of PNG_SIZES){
-          const blob = await canvasToBlob(await raster(v, size), 'image/png');
-          pngFolder.file(`${nameBase}-${slugify(v.label)}-digitaal-${String(size).padStart(4,"0")}px.png`, blob);
-        }
+        const blob = await canvasToBlob(await raster(v, PNG_SIZE), 'image/png');
+        pngFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.png`, blob);
       }
     }
     if (doJpg){
@@ -1614,38 +1655,21 @@ async function exportZip(){
     }
     if (doPrint){
       const printFolder = folder.folder('02_CMYK_Print');
-      let mask = null, maskFallbackUsed = false;
-      let vectorFailed = false, vectorFailReason = '';
-      const epsVariants = [];
+      let mask = null;
       for (const v of logoVariants){
-        const blob = await canvasToBlob(await raster(v, PRINT_SIZE), 'image/png');
-        printFolder.file(`${nameBase}-${slugify(v.label)}-print-300dpi.png`, blob);
-
         const cmyk = epsCmykFor(logo, v);
         if (!cmyk) continue;
         const title = `${nameBase}-${slugify(v.label)}-print`;
-        let eps = null, usedVector = false;
-        if (v.key === 'original'){
-          // Meerkleurig kan enkel als vector: het rastermasker-vangnet kent maar één kleur
-          try { eps = buildVectorEPS(logo.colorSvg, cmyk, title, 720, box); usedVector = true; }
-          catch(e){ console.warn(`Geen meerkleurige EPS voor "${logo.name}": ${e.message || e}`); continue; }
-        } else if (!vectorFailed){
-          try {
-            eps = buildVectorEPS(monoSvg, cmyk, title, 720, box);
-            usedVector = true;
-          } catch(e){
-            vectorFailed = true; vectorFailReason = e.message || String(e);
-          }
+        // "Origineel" gebruikt de SVG met kleur per vorm; de andere versies zijn één vlakke kleur
+        const src = v.key === 'original' ? logo.colorSvg : monoSvg;
+        if (logo.hasVector){
+          printFolder.file(`${title}.eps`, buildVectorEPS(src, cmyk, title, 720, box));
+          printFolder.file(`${title}.pdf`, buildVectorPDF(src, cmyk, title, 720, box));
+        } else {
+          // Geen vulvormen gevonden: enkel een EPS via het rastermasker (één vlakke kleur)
+          if (!mask) mask = extractMask(logo.img, EPS_MASK_SIZE, 0.08);
+          printFolder.file(`${title}.eps`, buildFlatEPS({ maskWidth: mask.maskWidth, maskHeight: mask.maskHeight, bits: mask.bits, cmyk, title, dpi: 300 }));
         }
-        if (!eps){
-          if (!mask){ mask = extractMask(logo.img, EPS_MASK_SIZE, 0.08); maskFallbackUsed = mask.usedFallback; }
-          eps = buildFlatEPS({
-            maskWidth: mask.maskWidth, maskHeight: mask.maskHeight, bits: mask.bits,
-            cmyk, title, dpi: 300
-          });
-        }
-        printFolder.file(`${nameBase}-${slugify(v.label)}-print.eps`, eps);
-        epsVariants.push(v.label + (usedVector ? ' (vector)' : ' (raster)'));
       }
       if (logo.type === 'svg' && logo.svgText){
         printFolder.file(`${nameBase}-print-vector-bron.svg`, logo.svgText);

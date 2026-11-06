@@ -95,6 +95,20 @@ input[type=file] { display: none; }
 .color-edit svg { width: 11px; height: 11px; }
 .color-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
+/* Kleurcombinaties voor meerkleurige logo's (stap 04) */
+#combo-editor { margin: 10px 0 8px; }
+.combo-title { font-size: 11px; font-weight: 500; color: #111; margin-bottom: 6px; }
+.combo-card { background: #F2F3F1; border-radius: 8px; padding: 8px; margin-bottom: 6px; }
+.combo-head { display: flex; align-items: center; gap: 8px; }
+.combo-card .combo-head + .field-row { margin-top: 8px; }
+.combo-card .field-row:last-child { margin-bottom: 0; }
+/* middengrijs: wit, zwart en de meeste merkkleuren blijven er zichtbaar op */
+.combo-preview { width: 76px; height: 42px; object-fit: contain; background: #A3A5A2; border-radius: 6px; padding: 5px; flex-shrink: 0; }
+.combo-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: #111; }
+.combo-head input[type=text] { flex: 1; min-width: 0; font-family: 'Instrument Sans', sans-serif; font-size: 12px; color: #111; border: 0.5px solid #D8DAD7; border-radius: 6px; padding: 5px 7px; background: #fff; }
+.combo-row label { width: auto; min-width: 82px; display: flex; align-items: center; gap: 5px; }
+.combo-row .swatch-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,0.1); }
+
 .hint-text { font-size: 11px; color: #111; line-height: 1.5; font-style: italic; opacity: 0.6; }
 .divider { border: none; border-top: 0.5px solid #E5E7E4; margin: 0; }
 .estimate-text { font-size: 11px; color: #111; opacity: 0.7; margin-top: 6px; }
@@ -260,7 +274,12 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
       <div>
         <div class="section-label">04. Kleurversies per asset</div>
         <div id="variant-checks"></div>
-        <div class="hint-text">Elke aangevinkte versie hierboven wordt automatisch gegenereerd voor elk logo: elke merkkleur als volledige herkleuring, plus zwart en wit. Meerkleurige logo’s krijgen daarnaast de versie "Origineel", met hun eigen kleuren.</div>
+        <div id="combo-editor" style="display:none"></div>
+        <datalist id="combo-suggestions">
+          <option value="Op donker">
+          <option value="Op kleurvlak">
+        </datalist>
+        <div class="hint-text">Elke aangevinkte versie wordt gegenereerd voor elk logo waarop ze van toepassing is. Eenkleurige logo’s krijgen elke merkkleur als volledige herkleuring, plus zwart en wit. Meerkleurige logo’s krijgen geen merkkleurversies, want dan smelten hun vormen samen tot één vlak. Zij krijgen "Origineel", zwart, wit en je eigen kleurcombinaties, die gelden voor alle meerkleurige logo’s van deze klant.</div>
       </div>
 
       <div>
@@ -302,6 +321,15 @@ let logos = [];        // {id, name, slug, role, type: 'svg'|'pdf', img, svgText
 let colors = [];       // {id, name, hex, c,m,y,k, pantone}
 let activeLogoId = null;
 let checkedVariants = new Set(['original', 'black', 'white']);
+// Kleurcombinaties voor meerkleurige logo's, per klant: gelden voor élk meerkleurig logo. map: merkkleur-id →
+// vervangkleur ('white', 'black' of een merkkleur-id); een merkkleur zonder eigen keuze krijgt `base`
+// ('keep' = blijft zichzelf). Zwart en Wit zijn aanpasbare standaarden (bv. één vorm wit houden in de zwarte versie).
+let combos = [
+  { id: 'black', name: 'Zwart', base: 'black', map: {}, builtin: true },
+  { id: 'white', name: 'Wit', base: 'white', map: {}, builtin: true },
+];
+const ORIGINAL_COMBO = { id: 'original', name: 'Origineel', base: 'keep', map: {}, builtin: true };
+const COMBO_NAME_SUGGESTIONS = ['Op donker', 'Op kleurvlak'];
 let editingColorId = null;
 let clientName = '';
 let idCounter = 0;
@@ -451,7 +479,7 @@ function setLogoColorMap(hex, colorId){
   if (!active) return;
   active.colorMap[hex] = colorId || null;
   active.colorMapManual.add(hex);
-  renderLogoColorControls(); renderExportTree(); updateEstimate();
+  renderLogoColorControls(); renderVariantChecks(); renderExportTree(); updateEstimate();
 }
 function prefillColorFromLogo(hex){
   cancelColorEdit();
@@ -490,26 +518,164 @@ function renderLogoColorControls(){
       rows.appendChild(add);
     }
   });
-  document.getElementById('logo-color-hint').textContent = originalCmykResolver(active)
-    ? 'De versie "Origineel" gebruikt per kleur de hex (digitaal) en de exacte CMYK (print) van de gekoppelde merkkleur.'
-    : 'Koppel elke kleur aan een merkkleur uit stap 03. Zonder koppeling krijgt de versie "Origineel" geen print-EPS — CMYK wordt nooit geschat.';
+  document.getElementById('logo-color-hint').textContent = active.colors.every(hex => brandColorFor(active, hex))
+    ? 'De versie "Origineel" en de kleurcombinaties in stap 04 gebruiken per kleur de hex (digitaal) en de exacte CMYK (print) van de gekoppelde merkkleur.'
+    : 'Koppel elke kleur aan een merkkleur uit stap 03. Een kleur zonder koppeling kan je in stap 04 niet vervangen, en zolang ze in een versie blijft staan, krijgt die versie geen print-EPS: CMYK wordt nooit geschat.';
 }
-function originalCmykResolver(logo){
-  // geeft een functie bronhex → [c,m,y,k] (fracties), of null zolang niet elke kleur gekoppeld is
-  if (!logo.colors.every(hex => brandColorFor(logo, hex))) return null;
-  return hex => { const c = brandColorFor(logo, hex); return [c.c/100, c.m/100, c.y/100, c.k/100]; };
+
+/* ── KLEURCOMBINATIES ──
+   "Origineel", Zwart, Wit en de eigen combinaties zijn allemaal hetzelfde: per vorm een kleur, bepaald door de
+   merkkleur waaraan de bronkleur gekoppeld is. Digitaal krijgt de vorm de hex, print de exacte CMYK. */
+function comboFill(logo, combo, srcHex){
+  // {hex, cmyk} voor een vorm met bronkleur srcHex; cmyk null = onbekend (bronkleur niet gekoppeld)
+  const brand = srcHex ? brandColorFor(logo, srcHex) : null;
+  let t = brand ? combo.map[brand.id] : null;
+  if (t && t !== 'black' && t !== 'white' && !colors.some(c => c.id === t)) t = null; // vervangkleur verwijderd
+  t = t || combo.base;
+  if (t === 'black') return { hex: '#000000', cmyk: [0, 0, 0, 1] };
+  if (t === 'white') return { hex: '#ffffff', cmyk: [0, 0, 0, 0] }; // geen inkt: spaart uit wat eronder ligt
+  const col = t === 'keep' ? brand : colors.find(c => c.id === t);
+  return col ? { hex: col.hex, cmyk: [col.c/100, col.m/100, col.y/100, col.k/100] } : { hex: srcHex || '#000000', cmyk: null };
 }
-function originalSvgFor(logo){
-  // SVG met per vorm de officiële hex van de gekoppelde merkkleur (of de bronkleur zolang die niet gekoppeld is)
+function comboForVariant(v){ return v.key === 'original' ? ORIGINAL_COMBO : (v.combo || null); }
+function perShapeVariant(logo, v){
+  // true: elke vorm een eigen kleur. false: het hele logo in één vlakke kleur (eenkleurig logo, merkkleurversie,
+  // of Zwart/Wit zonder aanpassing — dan kleurt de vlakke route ook lijnen mee)
+  const combo = comboForVariant(v);
+  if (!combo || !isMultiColor(logo)) return false;
+  if (!combo.builtin || combo === ORIGINAL_COMBO) return true;
+  const plain = { ...combo, map: {} };
+  return logo.colors.some(hex => comboFill(logo, combo, hex).hex !== comboFill(logo, plain, hex).hex);
+}
+function comboSvg(logo, combo){
+  // SVG met per vorm de hex uit de combinatie
   const doc = new DOMParser().parseFromString(logo.colorSvg, 'image/svg+xml');
   doc.querySelectorAll('[data-tkk-fill]').forEach(el => {
-    const src = el.getAttribute('data-tkk-fill');
-    const to = (brandColorFor(logo, src) || { hex: src }).hex;
+    const to = comboFill(logo, combo, el.getAttribute('data-tkk-fill')).hex;
     el.setAttribute('fill', to);
     el.style.setProperty('fill', to);
     el.removeAttribute('data-tkk-fill');
   });
   return new XMLSerializer().serializeToString(doc);
+}
+function monoSvgOf(logo){ return logo.type === 'svg' ? logo.svgText : logo.svgFromPdf; }
+function variantSvg(logo, v){
+  return perShapeVariant(logo, v) ? comboSvg(logo, comboForVariant(v)) : recolorSvgText(monoSvgOf(logo), v.hex);
+}
+function variantFgHexes(logo, v){
+  // de kleuren die in deze versie van het logo zichtbaar zijn (voor de contrastregel van de JPG's)
+  if (!perShapeVariant(logo, v)) return [v.hex];
+  const combo = comboForVariant(v);
+  return [...new Set(logo.colors.map(hex => comboFill(logo, combo, hex).hex))];
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]); }
+function comboBrandColors(){
+  // de merkkleuren die in minstens één meerkleurig logo gekoppeld zijn, in de volgorde van stap 03
+  const ids = new Set();
+  logos.filter(isMultiColor).forEach(l => l.colors.forEach(hex => { const b = brandColorFor(l, hex); if (b) ids.add(b.id); }));
+  return colors.filter(c => ids.has(c.id));
+}
+function previewLogo(){
+  const active = logos.find(l => l.id === activeLogoId);
+  return active && isMultiColor(active) ? active : logos.find(isMultiColor) || null;
+}
+function comboDot(combo){
+  const logo = previewLogo();
+  if (!logo) return null;
+  const hexes = [...new Set(logo.colors.map(hex => comboFill(logo, combo, hex).hex))];
+  if (hexes.length === 1) return hexes[0];
+  return `conic-gradient(${hexes.map((hex, i, a) => `${hex} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(', ')})`;
+}
+function renderComboEditor(){
+  const wrap = document.getElementById('combo-editor');
+  const logo = previewLogo();
+  if (!logo){ wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.style.display = 'block';
+  const brands = comboBrandColors();
+  const unmapped = logos.filter(isMultiColor).some(l => l.colors.some(hex => !brandColorFor(l, hex)));
+  const preview = combo => {
+    const v = combo === ORIGINAL_COMBO ? { key: 'original' } : { key: 'combo', combo, hex: combo.base === 'white' ? '#ffffff' : '#000000' };
+    const svg = cropSvg(variantSvg(logo, v), logo.bbox);
+    return `<img class="combo-preview" alt="Voorbeeld: ${escapeHtml(logo.name)} in ${escapeHtml(combo.name)}" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}">`;
+  };
+  const optionsFor = (combo, brand) => {
+    const current = combo.map[brand.id] || '';
+    const dflt = combo.base === 'keep' ? `Blijft ${brand.name}` : `${combo.base === 'black' ? 'Zwart' : 'Wit'} (standaard)`;
+    const opts = [`<option value="">${escapeHtml(dflt)}</option>`];
+    colors.filter(c => !(combo.base === 'keep' && c.id === brand.id))
+      .forEach(c => opts.push(`<option value="${c.id}" ${current === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`));
+    if (combo.base !== 'white') opts.push(`<option value="white" ${current === 'white' ? 'selected' : ''}>Wit</option>`);
+    if (combo.base !== 'black') opts.push(`<option value="black" ${current === 'black' ? 'selected' : ''}>Zwart</option>`);
+    return opts.join('');
+  };
+  wrap.innerHTML = `<div class="combo-title">Kleurcombinaties voor meerkleurige logo’s</div>`;
+  const ordered = [ORIGINAL_COMBO, ...combos.filter(c => !c.builtin), ...combos.filter(c => c.builtin)];
+  for (const combo of ordered){
+    const card = document.createElement('div');
+    card.className = 'combo-card';
+    const custom = !combo.builtin;
+    const head = custom
+      ? `<input type="text" list="combo-suggestions" value="${escapeHtml(combo.name)}" aria-label="Naam van de kleurcombinatie" data-combo-name="${combo.id}">
+         <button type="button" class="color-remove" aria-label="Combinatie ${escapeHtml(combo.name)} verwijderen" data-combo-remove="${combo.id}">×</button>`
+      : `<span class="combo-name">${escapeHtml(combo.name)}</span>`;
+    const rows = combo === ORIGINAL_COMBO ? '' : brands.map(b => `
+      <div class="field-row combo-row">
+        <label for="combo-${combo.id}-${b.id}"><span class="swatch-dot" style="background:${b.hex}"></span>${escapeHtml(b.name)}</label>
+        <select id="combo-${combo.id}-${b.id}" data-combo="${combo.id}" data-brand="${b.id}">${optionsFor(combo, b)}</select>
+      </div>`).join('');
+    card.innerHTML = `<div class="combo-head">${preview(combo)}${head}</div>${rows}`;
+    wrap.appendChild(card);
+  }
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'small-btn full';
+  add.textContent = 'Kleurcombinatie toevoegen';
+  add.addEventListener('click', addCombo);
+  wrap.appendChild(add);
+  const hint = document.createElement('div');
+  hint.className = 'hint-text';
+  hint.style.marginTop = '6px';
+  hint.textContent = (unmapped ? 'Niet elke kleur van je meerkleurige logo’s is gekoppeld aan een merkkleur (stap 02); die kleuren kan je hier niet vervangen. ' : '')
+    + `Het voorbeeld toont "${logo.name}" op grijs. Wit is in print geen inkt: zo’n vorm spaart uit wat eronder ligt, bv. het kleurvlak.`;
+  wrap.appendChild(hint);
+
+  wrap.querySelectorAll('select[data-combo]').forEach(sel => sel.addEventListener('change', e => {
+    setComboColor(sel.dataset.combo, sel.dataset.brand, e.target.value);
+  }));
+  wrap.querySelectorAll('input[data-combo-name]').forEach(inp => inp.addEventListener('input', e => {
+    const combo = combos.find(c => c.id === inp.dataset.comboName);
+    if (!combo) return;
+    combo.name = e.target.value;
+    inp.nextElementSibling.setAttribute('aria-label', `Combinatie ${combo.name} verwijderen`);
+    renderVariantCheckList(); renderExportTree(); updateEstimate();
+  }));
+  wrap.querySelectorAll('[data-combo-remove]').forEach(btn => btn.addEventListener('click', () => removeCombo(btn.dataset.comboRemove)));
+}
+function setComboColor(comboId, brandId, value){
+  const combo = combos.find(c => c.id === comboId);
+  if (!combo) return;
+  if (value) combo.map[brandId] = value; else delete combo.map[brandId];
+  renderVariantChecks(); renderExportTree(); updateEstimate();
+  const sel = document.getElementById(`combo-${comboId}-${brandId}`);
+  if (sel) sel.focus();
+}
+function addCombo(){
+  const used = new Set(combos.map(c => c.name.trim().toLowerCase()));
+  let name = COMBO_NAME_SUGGESTIONS.find(n => !used.has(n.toLowerCase()));
+  for (let n = 1; !name; n++) if (!used.has(`combinatie ${n}`)) name = `Combinatie ${n}`;
+  const id = 'combo-' + (idCounter++);
+  combos.push({ id, name, base: 'keep', map: {} });
+  checkedVariants.add('combo-' + id);
+  renderVariantChecks(); renderExportTree(); updateEstimate();
+  const inp = document.querySelector(`#combo-editor input[data-combo-name="${id}"]`);
+  if (inp){ inp.focus(); inp.select(); }
+}
+function removeCombo(id){
+  combos = combos.filter(c => c.id !== id);
+  checkedVariants.delete('combo-' + id);
+  renderVariantChecks(); renderExportTree(); updateEstimate();
+  const next = document.querySelector('#combo-editor .small-btn');
+  if (next) next.focus();
 }
 function loadSvgImage(svgText){
   return new Promise((resolve, reject) => {
@@ -520,11 +686,20 @@ function loadSvgImage(svgText){
   });
 }
 function variantsForLogo(logo, variants){
-  return variants.filter(v => v.key !== 'original' || isMultiColor(logo));
+  // scope 'multi': Origineel en eigen combinaties; scope 'mono': merkkleurversies (een meerkleurig logo in één
+  // merkkleur smelt samen tot één vlak). Zwart en Wit gelden voor elk logo.
+  const multi = isMultiColor(logo);
+  return variants.filter(v => !v.scope || (v.scope === 'multi') === multi);
 }
 function epsCmykFor(logo, v){
-  // "Origineel" kan enkel als vector: het rastermasker-vangnet kent maar één kleur
-  if (v.key === 'original') return logo.hasVector ? originalCmykResolver(logo) : null;
+  // Per vorm een kleur kan enkel als vector (het rastermasker-vangnet kent maar één kleur), en enkel als elke
+  // vorm een exacte CMYK heeft
+  if (perShapeVariant(logo, v)){
+    if (!logo.hasVector) return null;
+    const combo = comboForVariant(v);
+    if (!logo.colors.every(hex => comboFill(logo, combo, hex).cmyk)) return null;
+    return hex => comboFill(logo, combo, hex).cmyk || [0, 0, 0, 1];
+  }
   return flatCmykForVariant(v);
 }
 
@@ -570,7 +745,7 @@ function focusLogoThumb(id){
   if (el) el.focus();
 }
 function setActiveLogo(id){
-  activeLogoId = id; renderLogoThumbs(); renderExportTree();
+  activeLogoId = id; renderLogoThumbs(); renderVariantChecks(); renderExportTree();
   focusLogoThumb(id);
 }
 function setActiveLogoRole(role){
@@ -653,6 +828,10 @@ function resetColorForm(){
 function removeColor(id){
   colors = colors.filter(c => c.id !== id);
   checkedVariants.delete('brand-' + id);
+  combos.forEach(combo => {
+    delete combo.map[id];
+    for (const [k, t] of Object.entries(combo.map)) if (t === id) delete combo.map[k];
+  });
   if (editingColorId === id) cancelColorEdit();
   renderColorList();
   logos.forEach(autoMatchLogoColors);
@@ -691,20 +870,32 @@ function renderColorList(){
   });
 }
 
-/* ── VARIANTEN (dynamisch: origineel + elke merkkleur + zwart/wit) ── */
+/* ── VARIANTEN (dynamisch: origineel + merkkleuren + eigen combinaties + zwart/wit) ── */
 function variantList(){
   const list = [];
-  const multi = logos.find(isMultiColor);
-  if (multi){
-    const stops = multi.colors.map((hex, i, a) => `${hex} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(', ');
-    list.push({ key: 'original', label: 'Origineel', hex: null, dot: `conic-gradient(${stops})`, note: 'enkel meerkleurige logo’s' });
+  const anyMulti = logos.some(isMultiColor);
+  if (anyMulti) list.push({ key: 'original', label: 'Origineel', hex: null, dot: comboDot(ORIGINAL_COMBO), scope: 'multi', note: 'enkel meerkleurige logo’s' });
+  colors.forEach(c => list.push({ key: 'brand-' + c.id, label: c.name, hex: c.hex, dot: c.hex, scope: 'mono',
+    note: anyMulti ? 'enkel eenkleurige logo’s' : '' }));
+  if (anyMulti) combos.filter(c => !c.builtin).forEach(c => list.push({ key: 'combo-' + c.id, label: c.name.trim() || 'Combinatie',
+    hex: null, combo: c, dot: comboDot(c), scope: 'multi', note: 'enkel meerkleurige logo’s' }));
+  const [black, white] = combos.filter(c => c.builtin);
+  list.push({ key: 'black', label: 'Zwart', hex: '#000000', dot: '#000000', combo: black });
+  list.push({ key: 'white', label: 'Wit', hex: '#ffffff', dot: '#ffffff', combo: white });
+  // Twee versies met dezelfde naam zouden hetzelfde bestand overschrijven: de tweede krijgt een nummer
+  const seen = {};
+  for (const v of list){
+    const s = slugify(v.label);
+    seen[s] = (seen[s] || 0) + 1;
+    if (seen[s] > 1) v.label += ' ' + seen[s];
   }
-  colors.forEach(c => list.push({ key: 'brand-' + c.id, label: c.name, hex: c.hex, dot: c.hex }));
-  list.push({ key: 'black', label: 'Zwart', hex: '#000000', dot: '#000000' });
-  list.push({ key: 'white', label: 'Wit', hex: '#ffffff', dot: '#ffffff' });
   return list;
 }
 function renderVariantChecks(){
+  renderVariantCheckList();
+  renderComboEditor();
+}
+function renderVariantCheckList(){
   const wrap = document.getElementById('variant-checks');
   wrap.innerHTML = '';
   variantList().forEach(v => {
@@ -712,7 +903,7 @@ function renderVariantChecks(){
     row.className = 'check-row';
     const dot = v.dot ? `<span class="swatch-dot" style="background:${v.dot}"></span>` : '';
     const note = v.note ? ` <span style="opacity:0.6">— ${v.note}</span>` : '';
-    row.innerHTML = `<input type="checkbox" ${checkedVariants.has(v.key) ? 'checked' : ''} onchange="toggleVariant('${v.key}', this.checked)">${dot}${v.label}${note}`;
+    row.innerHTML = `<input type="checkbox" ${checkedVariants.has(v.key) ? 'checked' : ''} onchange="toggleVariant('${v.key}', this.checked)">${dot}<span>${escapeHtml(v.label)}${note}</span>`;
     wrap.appendChild(row);
   });
 }
@@ -829,9 +1020,9 @@ function selectedJpgBgs(){
   return bgs.length ? bgs : [{ name: 'wit', hex: '#ffffff' }];
 }
 function jpgBgsFor(logo, v, bgs){
-  // Voor "Origineel" moet elke kleur van het logo voldoende contrast hebben: anders valt een
-  // deel weg (bv. de donkere tekst van een tweekleurig logo op zwart)
-  const fg = v.key === 'original' ? logo.colors.map(hex => (brandColorFor(logo, hex) || { hex }).hex) : [v.hex];
+  // Bij een versie met meerdere kleuren moet elke kleur voldoende contrast hebben: anders valt
+  // een deel weg (bv. de donkere tekst van een tweekleurig logo op zwart)
+  const fg = variantFgHexes(logo, v);
   return bgs.filter(bg => fg.every(hex => contrastRatio(hex, bg.hex) >= MIN_JPG_CONTRAST));
 }
 
@@ -1618,11 +1809,11 @@ async function exportZip(){
     const digital = folder.folder('01_RGB_Digital');
     const nameBase = `${clientSlug}-${slugify(logo.role)}`;
     const logoVariants = variantsForLogo(logo, variants);
-    const monoSvg = logo.type === 'svg' ? logo.svgText : logo.svgFromPdf;
+    const monoSvg = monoSvgOf(logo);
     const box = logo.bbox;
-    // Elke versie is een SVG: "Origineel" in de officiële merkkleuren, de andere volledig in
-    // één kleur. Alle rasterformaten worden daaruit gerenderd, bijgesneden tot het logo.
-    const svgFor = v => v.key === 'original' ? originalSvgFor(logo) : recolorSvgText(monoSvg, v.hex);
+    // Elke versie is een SVG: "Origineel" en de combinaties met een kleur per vorm, de andere
+    // volledig in één kleur. Alle rasterformaten worden daaruit gerenderd, bijgesneden tot het logo.
+    const svgFor = v => variantSvg(logo, v);
     const raster = (v, longSide, bgHex) => renderRaster(svgFor(v), box, longSide, bgHex);
 
     if (doSvg){
@@ -1661,8 +1852,8 @@ async function exportZip(){
         const cmyk = epsCmykFor(logo, v);
         if (!cmyk) continue;
         const title = `${nameBase}-${slugify(v.label)}-print`;
-        // "Origineel" gebruikt de SVG met kleur per vorm; de andere versies zijn één vlakke kleur
-        const src = v.key === 'original' ? logo.colorSvg : monoSvg;
+        // Versies met een kleur per vorm gebruiken de SVG met data-tkk-fill; de andere zijn één vlakke kleur
+        const src = perShapeVariant(logo, v) ? logo.colorSvg : monoSvg;
         if (logo.hasVector){
           printFolder.file(`${title}.eps`, buildVectorEPS(src, cmyk, title, 720, box));
           printFolder.file(`${title}.pdf`, buildVectorPDF(src, cmyk, title, 720, box));

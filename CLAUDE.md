@@ -22,7 +22,7 @@ Vanilla HTML/CSS/JS + Canvas API, gebouwd op `assets/template.html` uit de `tkk-
 1. **Klantnaam** (stap 01) — vormt de basis van elke bestandsnaam in de export, nooit de naam van het geüploade bronbestand.
 2. **Logo's uploaden** (enkel SVG of PDF — vectorbronnen, zie "Bewust niet") — elk logo krijgt een vrij intypbare rol (met suggesties via `<datalist>`, geen vaste dropdown) die de mapnaam bepaalt. Een "+"-tegel naast bestaande logo's maakt duidelijk dat je er meer kan toevoegen.
 3. **Merkkleuren** (naam + hex + exacte CMYK + optioneel Pantone) — de CMYK-waarden worden letterlijk overgenomen, nooit automatisch geschat vanuit hex (browsers kunnen dat niet betrouwbaar zonder ICC-profiel).
-4. **Kleurversies per asset** — dynamisch: elke toegevoegde merkkleur plus zwart/wit worden automatisch aangeboden als aan te vinken variant. Zodra er een meerkleurig logo is, komt daar de variant **Origineel** bij (zie "Meerkleurige logo's").
+4. **Kleurversies per asset** — dynamisch: elke toegevoegde merkkleur plus zwart/wit worden automatisch aangeboden als aan te vinken variant. Een merkkleurversie geldt enkel voor eenkleurige logo's. Zodra er een meerkleurig logo is, komen daar **Origineel** en de eigen **kleurcombinaties** bij (zie "Meerkleurige logo's").
 5. **Pakket-opties** — per kleurversie één SVG, één PNG (3000 px), JPG's per achtergrond en één WebP voor digitaal, plus een print-map met een EPS en een PDF (vector, exacte CMYK).
 
 ## Vector-EPS en -PDF: hoe de CMYK-precisie werkt
@@ -43,6 +43,20 @@ Elke vorm krijgt bij upload zijn effectieve vulkleur als `data-tkk-fill`-attribu
 - **Koppeling**: elke gevonden kleur wordt gekoppeld aan de dichtstbijzijnde merkkleur uit stap 03 (RGB-afstand ≤ `COLOR_MATCH_TOLERANCE` = 40; ruim, omdat pdf.js CMYK naar RGB omzet en die hex dus zelden exact gelijk is aan de officiële). Per kleur handmatig te overschrijven in stap 02, ook bewust op "Niet gekoppeld" — een handmatige keuze wordt nooit door de automatische koppeling overschreven, tenzij die merkkleur verwijderd wordt. Een ontbrekende kleur kan je met één klik naar het formulier van stap 03 sturen (hex al ingevuld).
 - **Variant "Origineel"** (enkel voor meerkleurige logo's): digitaal krijgt elke vorm de **hex** van zijn merkkleur (`originalSvgFor()`, en daaruit ook PNG/JPG/WebP — zonder tint), print krijgt een EPS met per vorm de **exacte CMYK** in tekenvolgorde, zodat overlappingen kloppen (`buildVectorEPS()` met een kleurfunctie i.p.v. één CMYK).
 - **Geen EPS zonder volledige koppeling**: zolang één kleur niet gekoppeld is, komt er geen `origineel-print.eps` (ook niet in de boomweergave). Het rastermasker-vangnet kent maar één kleur, dus voor "Origineel" is er geen fallback.
+- **Geen merkkleurversies**: een meerkleurig logo in één merkkleur smelt samen tot één vlak (bv. het Comova-icoon helemaal donkergroen), dus die versies (`scope: 'mono'`) worden voor meerkleurige logo's overgeslagen. Eenkleurige logo's (bv. Tigron) krijgen ze wel.
+
+### Kleurcombinaties
+
+Een merkboek toont vaak hetzelfde logo met één kleur vervangen, bv. Comova: op donkergroen wordt de tekst en het linkerblad wit ("Op donker"), op een kleurvlak wordt het oranje blad wit ("Op kleurvlak"). Dat maak je in stap 04 als **kleurcombinatie**: een vrije naam (suggesties via `<datalist>`) en per merkkleur een vervangkleur: een andere merkkleur, wit of zwart, of "Blijft …".
+
+- **Per klant, niet per logo** (`combos`): de combinatie is gedefinieerd op merkkleuren, niet op bronkleuren, en geldt dus voor élk meerkleurig logo (logo met slogan, zonder slogan, los icoon). De vertaling bronkleur → merkkleur loopt via de koppeling uit stap 02.
+- **Origineel, Zwart en Wit zijn ook combinaties**: Origineel (`ORIGINAL_COMBO`) houdt elke merkkleur; Zwart en Wit maken standaard alles zwart of wit, maar zijn aanpasbaar, bv. in de zwarte versie het oranje blad wit houden zodat de bladeren niet samensmelten. Zonder aanpassing nemen Zwart en Wit de vlakke route (`recolorSvgText`, kleurt ook lijnen mee), zodat er voor die versies niets verandert.
+- **Eén kleurlogica voor alle formaten**: `comboFill(logo, combo, bronhex)` geeft per vorm `{hex, cmyk}`. Daaruit komen de SVG (`comboSvg()`, en daaruit PNG/JPG/WebP), de EPS en PDF (cmyk per vorm in tekenvolgorde, via `epsCmykFor()`) en de contrastregel voor JPG's (`variantFgHexes()`). `perShapeVariant()` beslist of een versie per vorm of vlak gekleurd wordt.
+- **Wit = geen inkt** in print (CMYK 0/0/0/0): de vorm bedekt wat eronder ligt in het logo en spaart in een lay-out het kleurvlak eronder uit. Zo houdt een wit blad op een gekleurd vlak zijn vorm.
+- **Kleurvoorbeeld**: elke combinatie toont een voorbeeld van het actieve meerkleurige logo (of het eerste) op middengrijs, zodat je vóór de export ziet welke vorm welke kleur krijgt.
+- **Niet-gekoppelde bronkleuren** kan je niet vervangen; ze blijven hun bronkleur, en zolang zo'n kleur in een versie staat, krijgt die versie geen EPS/PDF (CMYK wordt nooit geschat). Een merkkleur die verwijderd wordt, verdwijnt ook uit de combinaties.
+- **Dubbele namen**: twee versies met dezelfde naam zouden elkaars bestanden overschrijven; `variantList()` geeft de tweede een nummer.
+- **JPG's**: door de contrastregel krijgen combinaties voor gekleurde vlakken zelden een JPG (bv. "Op kleurvlak" heeft een wit blad en donkergroene tekst, dus niet op wit en niet op zwart). Bewust: die versies zijn bedoeld voor een kleurvlak, niet voor wit of zwart. Een JPG op een merkkleur als achtergrond is een mogelijke uitbreiding.
 
 ## Passend formaat (geen vierkant, geen witruimte)
 
@@ -74,6 +88,12 @@ logo = {
   colorMapManual, // Set van bronhexen die de gebruiker zelf koppelde
   bbox,           // { x, y, w, h } — rand van het logo in viewBox-coördinaten (passend formaat)
 }
+combo = {        // kleurcombinatie, per klant (geldt voor elk meerkleurig logo)
+  id, name,
+  base,           // 'keep' (eigen combinatie), 'black' of 'white' (de standaarden Zwart en Wit)
+  map,            // { 'color-3': 'white' } — merkkleur-id → 'white' | 'black' | merkkleur-id
+  builtin,        // true voor Zwart en Wit (niet te verwijderen of te hernoemen)
+}
 ```
 
 ## Export-boomstructuur i.p.v. logo-preview
@@ -93,7 +113,7 @@ Patroon: `{klantnaam}-{rol}-{kleurversie}-{digitaal|print}-{detail}.{ext}`, bv. 
 
 - Geen automatisch gegenereerde LEESMIJ-bestanden of merkkleuren-documentatie in de export — enkel de effectieve assets (zie SKILL.md).
 - Geen automatische CMYK-conversie vanuit hex — enkel wat de gebruiker zelf invult, plus een optionele "indicatieve schatting"-knop is bewust géén onderdeel meer (verwijderd op vraag, om verwarring met een echte waarde te vermijden).
-- **Monochrome versies van een meerkleurig logo worden niet aangepast**: alles wordt één kleur, dus overlappende vormen smelten samen (bv. twee overlappende bladeren worden één vlak). Bewust aanvaard — wie een officiële mono-versie uit het merkenboek heeft, uploadt die als apart logo met een eigen rol.
+- **Geen automatisch "slimme" mono-versie van een meerkleurig logo**: Zwart en Wit maken standaard alles één kleur, dus overlappende vormen smelten samen. Je kan dat zelf oplossen door in de combinatie Zwart of Wit één merkkleur te vervangen (zie "Kleurcombinaties"), of door een officiële mono-versie uit het merkenboek als apart logo met een eigen rol te uploaden. De merkkleurversies (alles in één merkkleur) vallen voor meerkleurige logo's helemaal weg.
 - **Geen CMYK uitlezen uit een PDF**: pdf.js zet CMYK-kleuren om naar RGB voor we ze zien, dus de originele CMYK uit een CMYK-PDF gaat verloren. Wel mogelijk met een eigen content-stream-parser, maar bewust niet gedaan: de CMYK komt altijd uit stap 03.
 - **Geen reeks PNG-maten en geen print-PNG**: vroeger 256/512/1024/2048 px plus een 3000 px "print"-PNG per kleurversie. Die maten kwamen uit de wereld van iconen en favicons, die een vierkant met marge vragen — iets wat dit pakket sinds het passend formaat niet meer maakt. Web, presentaties en Office verkleinen zelf, dus één PNG van 3000 px dekt alle toepassingen. De print-PNG was bovendien RGB in een map die "CMYK_Print" heet; voor drukwerk zijn er de EPS en de PDF. Resultaat: ±45 → ±30 bestanden per logo.
 - **Geen icoonpakket** (vierkant, voor favicons en profielfoto's in vaste maten): bewust uitgesteld; als het er komt, dan als apart, optioneel pakket voor het beeldmerk, niet als extra maten bij elk logo.

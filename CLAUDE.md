@@ -1,5 +1,10 @@
 # Logo Assets Generator
 
+> **Sinds november 2026 wordt `index.html` gebouwd vanuit de repo `kindkidnils/tkk-merk`.** Pas de tool
+> daar aan (`toepassingen/tools/logo-assets-generator/bron.html`) en bouw opnieuw met
+> `python3 toepassingen/tools/bouw_tool.py logo-assets-generator <deze map>`. Het font (Instrument Sans) komt
+> uit het merksysteem.
+
 Single-page browser tool om een compleet, geordend logo-asset-pack te genereren per klant/project: digitale formaten (SVG, PNG, JPG en WebP per kleurversie) én print-klare vectorbestanden (EPS en PDF met exacte CMYK), verpakt in één ZIP. Elk bestand is bijgesneden tot de rand van het logo.
 
 Eerder bekend als "LogoKit" (herbouwd/herbenoemd tijdens de skill-ontwikkeling — zie git-historiek als die bewaard is, anders begin bij deze versie).

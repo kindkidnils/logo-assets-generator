@@ -100,6 +100,8 @@ input[type=file] { display: none; }
 .color-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
 /* Monoversie en samensmelten (stap 02) */
+.thumb-warn { position: absolute; top: 4px; left: 4px; width: 16px; height: 16px; border-radius: 50%; background: #B42318; color: #fff; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
+#logo-fidelity .mono-box { margin-top: 10px; }
 .mono-box { background: #F2F3F1; border-radius: 8px; padding: 8px; margin-top: 8px; }
 .mono-box.warn { box-shadow: inset 3px 0 0 #111; }
 .mono-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #111; margin-bottom: 4px; }
@@ -124,6 +126,9 @@ input[type=file] { display: none; }
 .divider { border: none; border-top: 0.5px solid #E5E7E4; margin: 0; }
 .estimate-text { font-size: 11px; color: #111; opacity: 0.7; margin-top: 6px; }
 .estimate-text b { opacity: 1; }
+.form-error { font-size: 11px; color: #B42318; line-height: 1.4; margin-top: 4px; }
+.form-error:empty { display: none; }
+[aria-invalid="true"] { border-color: #B42318 !important; box-shadow: 0 0 0 1px #B42318; }
 
 .toggle-bar { display: flex; background: #ECEEED; border-radius: 99px; padding: 3px; gap: 2px; margin-bottom: 10px; width: 100%; overflow: hidden; }
 .toggle-btn { flex: 1; min-width: 0; font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 8px; border-radius: 99px; border: 1.5px solid transparent; cursor: pointer; background: transparent; color: #111; transition: background 0.15s; white-space: nowrap; }
@@ -255,6 +260,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
             </datalist>
           </div>
         </div>
+        <div id="logo-fidelity"></div>
         <div id="logo-color-controls" style="display:none; margin-top:10px">
           <div class="hint-text" style="opacity:0.85; font-style:normal; margin-bottom:4px">Kleuren in "<span id="logo-colors-active-name"></span>"</div>
           <div id="logo-color-rows"></div>
@@ -281,6 +287,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
           <button class="small-btn full" id="color-save-btn" onclick="saveColor()">Kleur toevoegen</button>
           <button class="small-btn" id="color-cancel-btn" onclick="cancelColorEdit()" style="display:none">Annuleer</button>
         </div>
+        <div class="form-error" id="color-error" role="alert"></div>
         <div class="hint-text" style="margin-top:6px">Geef de CMYK-waarden exact in zoals ze in het merkenboek staan. Deze waarden komen letterlijk in de kleurenkaart én in de CMYK EPS-bestanden terecht — geen schatting. Klik op een kleur hierboven om ze te bewerken.</div>
       </div>
 
@@ -322,7 +329,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
         <button class="empty-hint" id="empty-hint" onclick="document.getElementById('logo-upload').click()">Sleep een logo hierheen of klik om te uploaden</button>
         <div id="export-tree" aria-label="Voorbeeld van de mapstructuur in de export"></div>
       </div>
-      <div id="status-text"></div>
+      <div id="status-text" role="status" aria-live="polite"></div>
     </div>
     <div id="copyright">© 2026 Een experiment van The Kind Kids · Want durven is goud.</div>
   </div>
@@ -404,8 +411,8 @@ function loadVectorFile(file){
   // de SVG waaruit kleuren, rand en print-paden komen (bij een PDF de omgezette paden).
   const type = vectorFileKind(file);
   if (type === 'pdf'){
-    return handlePdfUpload(file).then(({ img, pdfBytes, pageCount, svgFromPdf }) =>
-      ({ type, img, svgText: null, pdfBytes, pageCount, svgFromPdf, vectorSvg: svgFromPdf }))
+    return handlePdfUpload(file).then(({ img, pdfBytes, pageCount, svgFromPdf, pdfRender }) =>
+      ({ type, img, svgText: null, pdfBytes, pageCount, svgFromPdf, pdfRender, vectorSvg: svgFromPdf }))
       .catch(err => { throw new Error('Kon "' + file.name + '" niet als PDF inlezen: ' + (err.message || err)); });
   }
   return new Promise((resolve, reject) => {
@@ -437,7 +444,9 @@ function handleLogoFiles(files){
     pendingLogos++;
     loadVectorFile(file).then(({ vectorSvg, ...src }) => {
       pendingLogos--;
-      addLogo({ id, name, slug: slugify(name), role: defaultRole, ...src }, vectorSvg);
+      const logo = { id, name, slug: slugify(name), role: defaultRole, ...src };
+      addLogo(logo, vectorSvg);
+      return checkFidelity(logo).then(rerenderAll);
     }).catch(err => { pendingLogos--; alert(err.message); });
   });
 }
@@ -742,6 +751,123 @@ function skippedAsMerged(logo, v){
   return isBlackOrWhite(v) && !logo.allowMerged && mergesIn(logo, v);
 }
 
+/* ── VOLLEDIGHEID ──
+   De print-EPS/-PDF, de kleurdetectie en de rand van het logo komen uit de vulvormen die de tool zelf uitleest
+   (collectPaintOps / collectPdfPaintOps). Tekst die niet naar contouren is omgezet, lijnen, maskers, <use>,
+   afbeeldingen, verlopen en transparantie leest de tool niet. Daarom wordt bij upload het logo zoals de browser
+   (of pdf.js) het tekent, vergeleken met die vulvormen. Ontbreekt er meer dan een randje, dan:
+   - SVG: de rand komt uit de browserweergave (de digitale bestanden kloppen dan), en print valt terug op het
+     rastermasker in één kleur (hasVector = false): geen vector-EPS/-PDF die stil delen mist.
+   - PDF: ook de digitale bestanden komen uit de vulvormen, dus alleen een duidelijke waarschuwing.
+   Een vorm die net buiten een masker valt (bv. een clip-path ter grootte van het artboard) geeft geen verschil. */
+const FIDELITY_SIZE = 800;        // px, langste zijde
+const FIDELITY_TOLERANCE = 0.005; // 0,5 % van het logo
+function pathsCanvas(ops, box, W, H){
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const F = [W / box.w, 0, 0, H / box.h, -box.x * W / box.w, -box.y * H / box.h];
+  for (const op of ops){
+    const M = matMultiply(F, op.matrix), p = new Path2D();
+    for (const sub of op.subpaths) for (const seg of sub){
+      if (seg.type === 'M') p.moveTo(...matApply(M, seg.x, seg.y));
+      else if (seg.type === 'L') p.lineTo(...matApply(M, seg.x, seg.y));
+      else if (seg.type === 'C') p.bezierCurveTo(...matApply(M, seg.x1, seg.y1), ...matApply(M, seg.x2, seg.y2), ...matApply(M, seg.x, seg.y));
+      else if (seg.type === 'Z') p.closePath();
+    }
+    ctx.fill(p, op.fillRule);
+  }
+  return c;
+}
+function alphaMask(canvas){
+  const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+  const m = new Uint8Array(canvas.width * canvas.height);
+  for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] >= 128 ? 1 : 0;
+  return m;
+}
+function uncovered(a, b, W, H){
+  // pixels van a waar b ook in de buurt (1 px) niets heeft: zo tellen randjes door anti-aliasing niet mee
+  let n = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    const i = y * W + x;
+    if (!a[i] || b[i]) continue;
+    let near = false;
+    for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++){
+      const yy = y + dy, xx = x + dx;
+      if (yy >= 0 && yy < H && xx >= 0 && xx < W && b[yy * W + xx]){ near = true; break; }
+    }
+    if (!near) n++;
+  }
+  return n;
+}
+function maskBBox(m, W, H, box){
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m[y * W + x]){
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return null;
+  // één pixel ruimer, zodat anti-aliasing aan de rand niet wegvalt
+  x0 = Math.max(0, x0 - 1); y0 = Math.max(0, y0 - 1); x1 = Math.min(W, x1 + 2); y1 = Math.min(H, y1 + 2);
+  const sx = box.w / W, sy = box.h / H;
+  return { x: box.x + x0 * sx, y: box.y + y0 * sy, w: (x1 - x0) * sx, h: (y1 - y0) * sy };
+}
+function fidelityReasons(src){
+  if (src.type !== 'svg') return ['lijnen, ingesloten afbeeldingen, kleurverlopen of maskers'];
+  const doc = new DOMParser().parseFromString(src.svgText, 'image/svg+xml');
+  const css = Array.from(doc.querySelectorAll('style')).map(st => st.textContent).join(' ') + ' '
+    + Array.from(doc.querySelectorAll('[style]')).map(el => el.getAttribute('style')).join(' ');
+  const out = [];
+  if (doc.querySelector('text, tspan, textPath')) out.push('tekst die niet naar contouren is omgezet');
+  if (doc.querySelector('[stroke]:not([stroke="none"])') || /stroke\s*:\s*(?!none)/i.test(css)) out.push('lijnen (strokes)');
+  if (doc.querySelector('[clip-path], [mask]') || /(clip-path|mask)\s*:\s*url/i.test(css)) out.push('een masker of clip-path');
+  if (doc.querySelector('use')) out.push('hergebruikte vormen (<use>)');
+  if (doc.querySelector('image')) out.push('een ingesloten afbeelding');
+  if (doc.querySelector('linearGradient, radialGradient, pattern')) out.push('een kleurverloop of patroon');
+  if (doc.querySelector('[opacity], [fill-opacity]') || /(^|[^-])opacity\s*:/i.test(css)) out.push('transparantie');
+  return out.length ? out : ['onderdelen die de tool niet kan uitlezen'];
+}
+async function checkFidelity(src){
+  try {
+    const svgDoc = new DOMParser().parseFromString(src.colorSvg, 'image/svg+xml').documentElement;
+    const vb = svgViewBox(svgDoc);
+    const [W, H] = fitLongSide(vb, FIDELITY_SIZE);
+    let truth;
+    if (src.type === 'svg') truth = await renderRaster(src.svgText, vb, FIDELITY_SIZE);
+    else if (src.pdfRender){
+      truth = document.createElement('canvas'); truth.width = W; truth.height = H;
+      truth.getContext('2d').drawImage(src.pdfRender, 0, 0, W, H);
+    } else return;
+    const a = alphaMask(truth), b = alphaMask(pathsCanvas(collectPaintOps(svgDoc, [1, 0, 0, 1, 0, 0]), vb, W, H));
+    const area = Math.max(1, a.reduce((n, v) => n + v, 0));
+    const missing = uncovered(a, b, W, H) / area, extra = uncovered(b, a, W, H) / area;
+    if (missing <= FIDELITY_TOLERANCE && extra <= FIDELITY_TOLERANCE){ src.fidelity = { ok: true }; return; }
+    src.fidelity = { ok: false, missing, extra, reasons: fidelityReasons(src) };
+    if (src.type === 'svg'){
+      src.hasVector = false; // print: rastermasker in één kleur i.p.v. vectoren die delen missen
+      const box = maskBBox(a, W, H, vb);
+      if (box) src.bbox = box;
+    }
+  } catch (e){
+    console.warn('Volledigheidscontrole mislukt', e);
+  }
+}
+function fidelityWarningHtml(src, label){
+  const f = src && src.fidelity;
+  if (!f || f.ok) return '';
+  const pct = v => (v * 100 < 1 ? '<1' : Math.round(v * 100)) + ' %';
+  const what = f.missing >= f.extra ? `${pct(f.missing)} van het logo ontbreekt` : `${pct(f.extra)} van het logo staat er te veel (bv. buiten een masker)`;
+  const effect = src.type === 'svg'
+    ? 'De digitale bestanden kloppen, want die tekent de browser zelf. Voor print krijgt dit logo alleen een EPS op hoge resolutie in één kleur (geen vector-PDF), en "Origineel" en de combinaties krijgen geen print.'
+    : 'Dat geldt voor alle bestanden van dit logo, ook de digitale: de tool haalt de vormen uit de PDF zelf.';
+  return `<div class="mono-box warn" role="note">
+    <div class="mono-head"><span><b>${escapeHtml(label)}: niet volledig over te nemen</b></span></div>
+    <div class="hint-text">Het bestand bevat ${escapeHtml(f.reasons.join(', '))}. In de vormen die de tool uitleest, ${what}. ${effect}</div>
+    <div class="hint-text"><b>Oplossing:</b> zet in Illustrator alles om naar gevulde vlakken (Tekst &gt; Contouren maken, Object &gt; Pad &gt; Omlijning omzetten, maskers vrijgeven en Pathfinder gebruiken) en exporteer opnieuw als SVG.</div>
+  </div>`;
+}
+function rerenderAll(){
+  renderLogoThumbs(); renderVariantChecks(); renderExportTree(); updateEstimate();
+}
+
 /* ── OFFICIËLE MONOVERSIE ──
    Een eenkleurige versie uit het merkboek, met de scheidingen tussen de vormen als echte uitsparingen. Zwart en Wit
    van dat logo gebruiken dan die vormen (met hun eigen rand), in plaats van alles samen te smelten. */
@@ -762,6 +888,7 @@ function handleMonoUpload(input){
     renderLogoColorControls(); renderVariantChecks(); renderExportTree(); updateEstimate();
     const btn = document.getElementById('logo-mono-remove');
     if (btn) btn.focus();
+    return checkFidelity(logo.mono).then(rerenderAll);
   }).catch(err => alert(err.message));
 }
 function removeMono(){
@@ -939,12 +1066,12 @@ function renderLogoThumbs(){
     const t = document.createElement('div');
     t.className = 'thumb-wrap';
     t.innerHTML = `
-      <button type="button" class="thumb ${l.id === activeLogoId ? 'active' : ''}" data-logo-id="${l.id}" aria-pressed="${l.id === activeLogoId}" aria-label="${l.name} selecteren (rol: ${l.role})" onclick="setActiveLogo('${l.id}')">
+      <button type="button" class="thumb ${l.id === activeLogoId ? 'active' : ''}" data-logo-id="${l.id}" aria-pressed="${l.id === activeLogoId}" aria-label="${escapeHtml(l.name)} selecteren (rol: ${escapeHtml(l.role)})${l.fidelity && !l.fidelity.ok ? ', niet volledig over te nemen' : ''}" onclick="setActiveLogo('${l.id}')">
         <img src="${l.img.src}" alt="">
-        <span class="thumb-role-badge">${l.role}</span>
+        <span class="thumb-role-badge">${escapeHtml(l.role)}</span>${l.fidelity && !l.fidelity.ok ? '<span class="thumb-warn" aria-hidden="true">!</span>' : ''}
       </button>
-      <button type="button" class="thumb-remove" aria-label="${l.name} verwijderen" onclick="removeLogo('${l.id}')">×</button>
-      <div class="thumb-label">${l.name}</div>`;
+      <button type="button" class="thumb-remove" aria-label="${escapeHtml(l.name)} verwijderen" onclick="removeLogo('${l.id}')">×</button>
+      <div class="thumb-label">${escapeHtml(l.name)}</div>`;
     wrap.appendChild(t);
   });
   if (logos.length){
@@ -959,6 +1086,9 @@ function renderLogoThumbs(){
   }
   const roleControls = document.getElementById('logo-role-controls');
   const active = logos.find(l => l.id === activeLogoId);
+  document.getElementById('logo-fidelity').innerHTML = active
+    ? fidelityWarningHtml(active, active.name) + (active.mono ? fidelityWarningHtml(active.mono, 'Monoversie ' + active.mono.name) : '')
+    : '';
   if (active){
     roleControls.style.display = 'block';
     document.getElementById('logo-role').value = active.role;
@@ -998,13 +1128,49 @@ function removeLogo(id){
 }
 
 /* ── KLEUREN ── */
-function syncHexText(){ document.getElementById('col-hex').value = document.getElementById('col-hex-text').value; }
+function syncHexText(){
+  // de kleurenkiezer aanvaardt enkel #rrggbb: alleen bijwerken bij een geldige code
+  const hex = normalizeHex(document.getElementById('col-hex-text').value);
+  if (hex) document.getElementById('col-hex').value = hex;
+}
 function hexToCmyk(){ document.getElementById('col-hex-text').value = document.getElementById('col-hex').value; }
+function normalizeHex(v){
+  // '#abc', 'abc', '#aabbcc' of 'AABBCC' → '#aabbcc'; anders null
+  const h = String(v || '').trim().replace(/^#/, '').toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(h)) return '#' + h.split('').map(ch => ch + ch).join('');
+  if (/^[0-9a-f]{6}$/.test(h)) return '#' + h;
+  return null;
+}
+function readCmyk(){
+  // De vier CMYK-velden als getallen 0–100, of een foutmelding. Geen stille correctie: een fout in het merkboek
+  // of een tikfout moet zichtbaar worden, want deze waarden gaan letterlijk naar de drukker.
+  const out = {};
+  for (const key of ['c', 'm', 'y', 'k']){
+    const raw = document.getElementById('col-' + key).value.trim().replace(',', '.');
+    const n = Number(raw);
+    if (raw === '' || !isFinite(n)) return { error: `Vul bij ${key.toUpperCase()} een getal in (0 tot 100).`, field: key };
+    if (n < 0 || n > 100) return { error: `${key.toUpperCase()} = ${raw} kan niet: CMYK-waarden liggen tussen 0 en 100.`, field: key };
+    out[key] = Math.round(n * 10) / 10;
+  }
+  return out;
+}
+function showColorError(msg, fieldId){
+  document.getElementById('color-error').textContent = msg || '';
+  ['col-hex-text', 'col-c', 'col-m', 'col-y', 'col-k'].forEach(id => document.getElementById(id).removeAttribute('aria-invalid'));
+  if (fieldId){
+    const el = document.getElementById(fieldId);
+    el.setAttribute('aria-invalid', 'true');
+    el.focus();
+  }
+}
 function saveColor(){
   const name = document.getElementById('col-name').value.trim() || 'Kleur ' + (colors.length + 1);
-  const hex = document.getElementById('col-hex-text').value.trim();
-  const c = document.getElementById('col-c').value, m = document.getElementById('col-m').value,
-        y = document.getElementById('col-y').value, k = document.getElementById('col-k').value;
+  const hex = normalizeHex(document.getElementById('col-hex-text').value);
+  if (!hex){ showColorError('Geen geldige hexcode. Gebruik bv. #083213 of 083213.', 'col-hex-text'); return; }
+  const cmyk = readCmyk();
+  if (cmyk.error){ showColorError(cmyk.error, 'col-' + cmyk.field); return; }
+  showColorError('');
+  const { c, m, y, k } = cmyk;
   const pantone = document.getElementById('col-pantone').value.trim();
   if (editingColorId){
     const existing = colors.find(col => col.id === editingColorId);
@@ -1026,6 +1192,7 @@ function editColor(id){
   const col = colors.find(c => c.id === id);
   if (!col) return;
   editingColorId = id;
+  showColorError('');
   document.getElementById('col-name').value = col.name;
   document.getElementById('col-hex').value = col.hex;
   document.getElementById('col-hex-text').value = col.hex;
@@ -1040,6 +1207,7 @@ function editColor(id){
 }
 function cancelColorEdit(){
   editingColorId = null;
+  showColorError('');
   resetColorForm();
   renderColorList();
 }
@@ -1741,7 +1909,8 @@ function loadPdfJs(){
 async function handlePdfUpload(file){
   const pdfjsLib = await loadPdfJs();
   const pdfBytes = new Uint8Array(await file.arrayBuffer());
-  const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+  const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice() });
+  const doc = await loadingTask.promise;
   const page = await doc.getPage(1);
   const [minX, minY, maxX, maxY] = page.view;
   const vbW = maxX - minX, vbH = maxY - minY;
@@ -1783,7 +1952,18 @@ async function handlePdfUpload(file){
   const dataUrl = canvas.toDataURL('image/png');
   const img = new Image();
   await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = dataUrl; });
-  return { img, pdfBytes, pageCount: doc.numPages, svgFromPdf: pdfOpsToSvg(ops, outW, outH) };
+  // De pagina zoals pdf.js ze zelf tekent (met lijnen, afbeeldingen, verlopen en maskers), als referentie voor
+  // checkFidelity(): zo blijkt of de uitgelezen vulvormen het hele logo dekken.
+  let pdfRender = null;
+  try {
+    pdfRender = document.createElement('canvas');
+    pdfRender.width = canvas.width; pdfRender.height = canvas.height;
+    // zelf een context met transparantie aanmaken: pdf.js maakt er anders een zonder alfa (zwarte achtergrond)
+    await page.render({ canvas: null, canvasContext: pdfRender.getContext('2d', { alpha: true }), viewport: page.getViewport({ scale: S }), background: 'rgba(0,0,0,0)' }).promise;
+  } catch (e){ console.warn('pdf.js-weergave mislukt', e); pdfRender = null; }
+  const pageCount = doc.numPages;
+  loadingTask.destroy(); // geheugen en worker vrijgeven: alles wat nodig is, staat nu in ops en de canvassen
+  return { img, pdfBytes, pageCount, svgFromPdf: pdfOpsToSvg(ops, outW, outH), pdfRender };
 }
 
 /* ── SVG uit een PDF-bron ── Dezelfde vectorpaden als voor de EPS (collectPdfPaintOps), maar
@@ -2021,7 +2201,26 @@ function setStatus(t, clearAfterMs){
 }
 
 async function exportZip(){
+  // Elke fout wordt opgevangen en gemeld; de knop komt altijd terug vrij.
   if (!logos.length || !clientName.trim()) return;
+  const btn = document.getElementById('export-btn');
+  if (typeof JSZip === 'undefined'){
+    setStatus('Exporteren lukt niet: de ZIP-bibliotheek (JSZip, via cdnjs.cloudflare.com) is niet geladen. Controleer je internetverbinding of een blokkering van die site, en herlaad de pagina.');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await buildAndDownloadZip();
+    setStatus('Klaar — ZIP gedownload.', 4000);
+  } catch (err){
+    console.error(err);
+    setStatus('Exporteren is mislukt: ' + (err && err.message ? err.message : err) + '. Probeer opnieuw; blijft het mislukken, verwijder dan het laatst toegevoegde logo en probeer zonder.');
+  } finally {
+    btn.disabled = false;
+    updateExportState();
+  }
+}
+async function buildAndDownloadZip(){
   const zip = new JSZip();
   const clientSlug = slugify(clientName.trim());
   const { variants } = computeCounts();
@@ -2032,12 +2231,10 @@ async function exportZip(){
   const doPrint = document.getElementById('pkg-print').checked;
   const jpgBgs = selectedJpgBgs();
 
-  setStatus('Bezig met genereren…');
-  document.getElementById('export-btn').disabled = true;
-
   const sortedLogos = logos.slice();
   for (let i = 0; i < sortedLogos.length; i++){
     const logo = sortedLogos[i];
+    setStatus(`Bezig met logo ${i + 1} van ${sortedLogos.length} (${logo.name})…`);
     const folderName = String(i + 1).padStart(2, '0') + '_' + rolePart(logo.role);
     const folder = zip.folder(folderName);
     const digital = folder.folder('01_RGB_Digital');
@@ -2109,10 +2306,7 @@ async function exportZip(){
   const a = document.createElement('a');
   a.href = url; a.download = `${clientSlug}-logo-asset-pack.zip`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  setStatus('Klaar — ZIP gedownload.', 4000);
-  document.getElementById('export-btn').disabled = false;
+  setTimeout(() => URL.revokeObjectURL(url), 10000); // Safari start de download soms pas na deze functie
 }
 
 renderVariantChecks();

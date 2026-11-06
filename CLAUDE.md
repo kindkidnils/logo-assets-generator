@@ -21,7 +21,7 @@ Vanilla HTML/CSS/JS + Canvas API, gebouwd op `assets/template.html` uit de `tkk-
 
 1. **Klantnaam** (stap 01) — vormt de basis van elke bestandsnaam in de export, nooit de naam van het geüploade bronbestand.
 2. **Logo's uploaden** (enkel SVG of PDF — vectorbronnen, zie "Bewust niet") — elk logo krijgt een vrij intypbare rol (met suggesties via `<datalist>`, geen vaste dropdown) die de mapnaam bepaalt. Een "+"-tegel naast bestaande logo's maakt duidelijk dat je er meer kan toevoegen. Enkel het eerste logo krijgt standaard "Primary Logo", ook bij meerdere bestanden tegelijk (`pendingLogos` telt de logo's die nog inladen), en de logo's blijven in de volgorde van uploaden staan, ook als een later bestand sneller ingeladen is. Zolang je zelf geen logo aanklikt, is het eerste logo actief. Logo's kan je ook **slepen**: op de uploadknop in stap 02 of op het resultaatvlak rechts (elk element met `data-drop="logo"`); elders op de pagina wordt een losgelaten bestand genegeerd, zodat de browser het niet opent.
-3. **Merkkleuren** (naam + hex + exacte CMYK + optioneel Pantone) — de CMYK-waarden worden letterlijk overgenomen, nooit automatisch geschat vanuit hex (browsers kunnen dat niet betrouwbaar zonder ICC-profiel).
+3. **Merkkleuren** (naam + hex + exacte CMYK + optioneel Pantone) — de CMYK-waarden worden letterlijk overgenomen, nooit automatisch geschat vanuit hex (browsers kunnen dat niet betrouwbaar zonder ICC-profiel). Invoer wordt gecontroleerd (`normalizeHex()`, `readCmyk()`): hex in de vorm `#abc`/`#aabbcc` (met of zonder `#`), CMYK als getal van 0 tot 100 (komma mag). Bij een fout geen stille correctie maar een melding bij het veld, want deze waarden gaan letterlijk naar de drukker.
 4. **Kleurversies per asset** — dynamisch: elke toegevoegde merkkleur plus zwart/wit worden automatisch aangeboden als aan te vinken variant. Een merkkleurversie geldt enkel voor eenkleurige logo's. Zodra er een meerkleurig logo is, komen daar **Origineel** en de eigen **kleurcombinaties** bij (zie "Meerkleurige logo's").
 5. **Pakket-opties** — per kleurversie één SVG, één PNG (3000 px), JPG's per achtergrond en één WebP voor digitaal, plus een print-map met een EPS en een PDF (vector, exacte CMYK).
 
@@ -31,6 +31,15 @@ Browsers kunnen RGB niet betrouwbaar naar CMYK omrekenen (geen ICC-profiel) — 
 
 - **Normaal geval**: de vectorpaden van de geüploade SVG/PDF worden zelf omgezet naar PostScript-paden (`moveto`/`lineto`/`curveto`) — een echt, oneindig schaalbaar vectorbestand. Beide brontypes lopen via `vectorDrawing()`, dat de paden één keer opbouwt; `buildVectorEPS()` en `buildVectorPDF()` verpakken die als EPS (PostScript-operatoren) of PDF (dezelfde operatoren onder hun PDF-naam: `m`/`l`/`c`/`k` …). Een EPS en PDF van dezelfde versie renderen pixel-identiek: een PDF wordt bij upload al omgezet naar een SVG (`logo.svgFromPdf`, zie hieronder), via pdf.js' operator-list (de al-uitgepakte tekencommando's), niet via een eigen PDF-parser.
 - **Fallback bij parse-mislukking**: als de vectorpaden van een specifiek logo niet uitgelezen kunnen worden (bv. tekst die niet naar paden is omgezet, een verloop, of een clip-path — zie de beperkingen bij `collectPdfPaintOps`/`collectPaintOps`), krijgt dat logo geen PDF en valt de EPS terug op een hogeresolutie rastermasker (1500px) ingekleurd via `imagemask` — nog steeds de exacte CMYK-waarde, maar geen oneindig schaalbaar vectorpad, en (als enige bestand) niet bijgesneden tot het logo. Dit is een foutopvang, geen normaal exportpad — sinds de upload-stap enkel nog SVG/PDF aanvaardt (zie "Bewust niet") is er geen raster-bronbestand meer dat hier standaard doorheen zou moeten.
+
+### Volledigheidscontrole bij upload
+
+De vulvormen die de tool uitleest (`collectPaintOps` / `collectPdfPaintOps`) bepalen de print-EPS/-PDF, de kleurdetectie en de rand van het logo. Tekst die niet naar contouren is omgezet, lijnen, maskers/clip-paths, `<use>`, afbeeldingen, verlopen en transparantie leest de tool niet. Vroeger viel zoiets stil weg, en sneed de rand zelfs de digitale bestanden te krap bij.
+
+`checkFidelity()` vergelijkt daarom bij upload (ook voor een monoversie) het logo zoals de browser het tekent (SVG) of pdf.js het tekent (PDF, `pdfRender`, op een context mét alfa), met de uitgelezen vulvormen, op 800 px (`FIDELITY_SIZE`). Verschil groter dan 0,5 % van het logo (`FIDELITY_TOLERANCE`, randpixels door anti-aliasing tellen niet) = `fidelity.ok === false`:
+- **SVG**: de rand komt uit de browserweergave (`maskBBox`), zodat de digitale bestanden kloppen, en `hasVector = false`: print valt terug op het rastermasker in één kleur, zonder vector-PDF; "Origineel" en combinaties krijgen geen print.
+- **PDF**: ook de digitale bestanden komen uit de vulvormen, dus enkel een waarschuwing.
+- Waarschuwing in stap 02 met de gevonden oorzaken (`fidelityReasons()`) en een oplossing (contouren maken, omlijning omzetten), plus een rood uitroepteken op de thumbnail. Een clip-path ter grootte van het artboard (zoals in de Comova-SVG) geeft geen verschil en dus geen waarschuwing.
 
 Getest met Ghostscript: de gerenderde CMYK-waarden kwamen exact overeen met de ingevoerde waarden (tot op 8-bit-afrondingsniveau).
 
@@ -106,6 +115,10 @@ combo = {        // kleurcombinatie, per klant (geldt voor elk meerkleurig logo)
   builtin,        // true voor Zwart en Wit (niet te verwijderen of te hernoemen)
 }
 ```
+
+## Export: fouten en voortgang
+
+`exportZip()` vangt elke fout op en meldt ze in gewone taal in de statusregel (`role="status"`, `aria-live`), en geeft de knop altijd terug vrij. Ontbreekt JSZip (CDN geblokkeerd of offline), dan meldt de tool dat meteen. Tijdens het genereren toont de status welk logo bezig is ("logo 2 van 3"). Het eigenlijke werk zit in `buildAndDownloadZip()`.
 
 ## Export-boomstructuur i.p.v. logo-preview
 

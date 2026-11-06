@@ -387,6 +387,14 @@ function vectorFileKind(file){
   if (file.type === 'image/svg+xml' || n.endsWith('.svg')) return 'svg';
   return null;
 }
+// Een SVG die deze tool in één kleur exporteerde (recolorSvgText), bevat een <style> die elke vorm met !important
+// herkleurt. Wordt zo'n bestand opnieuw als bron gebruikt, dan lijkt elk logo eenkleurig. De oorspronkelijke kleuren
+// staan nog in de fill-attributen, dus de regel wordt verwijderd.
+const RECOLOR_STYLE_RE = /<style[^>]*>\s*\*:not\(\[fill="none"\]\)\s*\{\s*fill:\s*#[0-9a-f]{3,8}\s*!important;?\s*\}[^<]*<\/style>/gi;
+function stripRecolorStyle(svgText){
+  const svg = svgText.replace(RECOLOR_STYLE_RE, '');
+  return { svg, stripped: svg !== svgText };
+}
 function loadVectorFile(file){
   // Leest een SVG of PDF in. Geeft {type, img, svgText, pdfBytes, pageCount, svgFromPdf, vectorSvg}; vectorSvg is
   // de SVG waaruit kleuren, rand en print-paden komen (bij een PDF de omgezette paden).
@@ -399,7 +407,8 @@ function loadVectorFile(file){
   return new Promise((resolve, reject) => {
     const textReader = new FileReader();
     textReader.onload = e => {
-      const svgText = e.target.result;
+      const { svg: svgText, stripped } = stripRecolorStyle(e.target.result);
+      if (stripped) setStatus(`"${file.name}" is een export van deze tool in één kleur. De oorspronkelijke kleuren staan er nog in; die worden gebruikt. Upload liefst het originele logo.`, 10000);
       loadSvgImage(svgText)
         .then(img => resolve({ type, img, svgText, vectorSvg: svgText }))
         .catch(() => reject(new Error('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?')));
@@ -1976,7 +1985,12 @@ function updateExportState(){
 function canvasToBlob(canvas, type, quality){
   return new Promise(res => canvas.toBlob(b => res(b), type || 'image/png', quality));
 }
-function setStatus(t){ document.getElementById('status-text').textContent = t; }
+let statusTimer = null;
+function setStatus(t, clearAfterMs){
+  document.getElementById('status-text').textContent = t;
+  clearTimeout(statusTimer);
+  if (clearAfterMs) statusTimer = setTimeout(() => setStatus(''), clearAfterMs);
+}
 
 async function exportZip(){
   if (!logos.length || !clientName.trim()) return;
@@ -2069,9 +2083,8 @@ async function exportZip(){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 
-  setStatus('Klaar — ZIP gedownload.');
+  setStatus('Klaar — ZIP gedownload.', 4000);
   document.getElementById('export-btn').disabled = false;
-  setTimeout(() => setStatus(''), 4000);
 }
 
 renderVariantChecks();

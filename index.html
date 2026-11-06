@@ -358,40 +358,51 @@ function rolePart(role){
 }
 
 /* ── LOGO UPLOAD ── */
+// Logo's die nog aan het inladen zijn (een SVG of PDF laadt asynchroon). Telt mee voor de standaardrol, zodat
+// bij meerdere bestanden tegelijk enkel het eerste "Primary Logo" wordt.
+let pendingLogos = 0;
 function handleLogoUpload(input){
   const files = Array.from(input.files || []);
   files.forEach(file => {
     const id = 'logo-' + (idCounter++);
     const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    const defaultRole = logos.length === 0 ? 'Primary Logo' : 'Logo Mark';
+    if (!isPdf && !isSvg){
+      alert('"' + file.name + '" is geen SVG of PDF. Deze tool aanvaardt enkel vectorbestanden — exporteer het logo eerst als SVG of PDF.');
+      return;
+    }
+    const defaultRole = logos.length + pendingLogos === 0 ? 'Primary Logo' : 'Logo Mark';
+    pendingLogos++;
+    const done = () => { pendingLogos--; };
     if (isPdf){
       handlePdfUpload(file).then(({ img, pdfBytes, pageCount, svgFromPdf }) => {
+        done();
         addLogo({
           id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
           role: defaultRole, type: 'pdf', img, svgText: null, pdfBytes, pageCount, svgFromPdf
         }, svgFromPdf);
       }).catch(err => {
+        done();
         alert('Kon "' + file.name + '" niet als PDF inlezen: ' + (err.message || err));
       });
-    } else if (isSvg){
+    } else {
       const textReader = new FileReader();
       textReader.onload = e => {
         const svgText = e.target.result;
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
         const img = new Image();
         img.onload = () => {
+          done();
           addLogo({
             id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
             role: defaultRole, type: 'svg', img, svgText
           }, svgText);
         };
-        img.onerror = () => alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?');
+        img.onerror = () => { done(); alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?'); };
         img.src = dataUrl;
       };
+      textReader.onerror = () => { done(); alert('Kon "' + file.name + '" niet lezen.'); };
       textReader.readAsText(file);
-    } else {
-      alert('"' + file.name + '" is geen SVG of PDF. Deze tool aanvaardt enkel vectorbestanden — exporteer het logo eerst als SVG of PDF.');
     }
   });
   input.value = '';
@@ -403,7 +414,11 @@ function addLogo(logo, vectorSvg){
     // zonder vulvormen geen vector-PDF; de EPS valt dan terug op het rastermasker
     hasVector: collectPaintOps(new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement, [1, 0, 0, 1, 0, 0]).length > 0 });
   autoMatchLogoColors(logo);
-  logos.push(logo);
+  // In de volgorde van uploaden, ook als een later bestand sneller ingeladen is (bv. een SVG na een PDF):
+  // het "Primary Logo" komt zo altijd in map 01
+  const seq = l => parseInt(l.id.slice(5), 10);
+  const at = logos.findIndex(l => seq(l) > seq(logo));
+  if (at < 0) logos.push(logo); else logos.splice(at, 0, logo);
   if (!activeLogoId) activeLogoId = logo.id;
   renderLogoThumbs(); renderVariantChecks(); renderExportTree(); updateExportState(); updateEstimate();
 }
@@ -463,17 +478,24 @@ function autoMatchLogoColors(logo){
     // een handmatige keuze blijft staan — ook bewust "Niet gekoppeld" — tenzij die merkkleur intussen verwijderd is
     if (logo.colorMapManual.has(hex)){
       const id = logo.colorMap[hex];
-      if (id === null || colors.some(c => c.id === id)) continue;
+      if (id === null || linkColors().some(c => c.id === id)) continue;
     }
     let best = null, bestD = Infinity;
-    for (const c of colors){
+    for (const c of linkColors()){ // merkkleuren eerst: bij gelijke afstand wint de merkkleur
       const d = colorDistance(hex, c.hex);
       if (d < bestD){ bestD = d; best = c; }
     }
     logo.colorMap[hex] = best && bestD <= COLOR_MATCH_TOLERANCE ? best.id : null;
   }
 }
-function brandColorFor(logo, hex){ return colors.find(c => c.id === logo.colorMap[hex]) || null; }
+// Zwart en wit zijn altijd koppelbaar, zonder ze als merkkleur toe te voegen: een logo met bv. zwarte tekst
+// of een witte vorm krijgt zo toch een exacte CMYK (K100, of geen inkt) en kan in combinaties vervangen worden.
+const BASE_LINK_COLORS = [
+  { id: 'black', name: 'Zwart', hex: '#000000', c: 0, m: 0, y: 0, k: 100, base: true },
+  { id: 'white', name: 'Wit', hex: '#ffffff', c: 0, m: 0, y: 0, k: 0, base: true },
+];
+function linkColors(){ return [...colors, ...BASE_LINK_COLORS]; }
+function brandColorFor(logo, hex){ return linkColors().find(c => c.id === logo.colorMap[hex]) || null; }
 function setLogoColorMap(hex, colorId){
   const active = logos.find(l => l.id === activeLogoId);
   if (!active) return;
@@ -505,7 +527,7 @@ function renderLogoColorControls(){
       <label for="logo-color-${i}"><span class="swatch-dot" style="background:${hex}"></span>${hex.toUpperCase()}</label>
       <select id="logo-color-${i}">
         <option value="">Niet gekoppeld</option>
-        ${colors.map(c => `<option value="${c.id}" ${mapped && mapped.id === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+        ${linkColors().map(c => `<option value="${c.id}" ${mapped && mapped.id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}${c.id === 'black' ? ' (K100)' : c.id === 'white' ? ' (geen inkt)' : ''}</option>`).join('')}
       </select>`;
     row.querySelector('select').addEventListener('change', e => setLogoColorMap(hex, e.target.value));
     rows.appendChild(row);
@@ -573,7 +595,7 @@ function comboBrandColors(){
   // de merkkleuren die in minstens één meerkleurig logo gekoppeld zijn, in de volgorde van stap 03
   const ids = new Set();
   logos.filter(isMultiColor).forEach(l => l.colors.forEach(hex => { const b = brandColorFor(l, hex); if (b) ids.add(b.id); }));
-  return colors.filter(c => ids.has(c.id));
+  return linkColors().filter(c => ids.has(c.id));
 }
 function previewLogo(){
   const active = logos.find(l => l.id === activeLogoId);
@@ -604,8 +626,10 @@ function renderComboEditor(){
     const opts = [`<option value="">${escapeHtml(dflt)}</option>`];
     colors.filter(c => !(combo.base === 'keep' && c.id === brand.id))
       .forEach(c => opts.push(`<option value="${c.id}" ${current === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`));
-    if (combo.base !== 'white') opts.push(`<option value="white" ${current === 'white' ? 'selected' : ''}>Wit</option>`);
-    if (combo.base !== 'black') opts.push(`<option value="black" ${current === 'black' ? 'selected' : ''}>Zwart</option>`);
+    // geen optie die gelijk is aan de standaard (bv. "Zwart" naast "Blijft Zwart")
+    const dfltTarget = combo.base === 'keep' ? brand.id : combo.base;
+    if (dfltTarget !== 'white') opts.push(`<option value="white" ${current === 'white' ? 'selected' : ''}>Wit</option>`);
+    if (dfltTarget !== 'black') opts.push(`<option value="black" ${current === 'black' ? 'selected' : ''}>Zwart</option>`);
     return opts.join('');
   };
   wrap.innerHTML = `<div class="combo-title">Kleurcombinaties voor meerkleurige logo’s</div>`;

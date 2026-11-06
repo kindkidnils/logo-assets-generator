@@ -126,6 +126,12 @@ input[type=file] { display: none; }
 .divider { border: none; border-top: 0.5px solid #E5E7E4; margin: 0; }
 .estimate-text { font-size: 11px; color: #111; opacity: 0.7; margin-top: 6px; }
 .estimate-text b { opacity: 1; }
+#color-suggestions:not(:empty) { background: #F2F3F1; border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+.suggest-title { font-size: 11px; font-weight: 500; color: #111; margin-bottom: 6px; }
+.suggest-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.color-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 4px 9px; border-radius: 99px; border: 1px solid #111; background: #fff; color: #111; font-family: 'Instrument Sans', sans-serif; font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.color-chip:hover { background: #111; color: #fff; }
+.color-chip .swatch-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }
 .form-error { font-size: 11px; color: #B42318; line-height: 1.4; margin-top: 4px; }
 .form-error:empty { display: none; }
 [aria-invalid="true"] { border-color: #B42318 !important; box-shadow: 0 0 0 1px #B42318; }
@@ -273,6 +279,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
       <div>
         <div class="section-label">03. Merkkleuren</div>
+        <div id="color-suggestions"></div>
         <div class="color-list" id="color-list"></div>
         <div class="field-row" style="margin-top:8px"><label for="col-name">Naam</label><input type="text" id="col-name" placeholder="Naam van kleur"></div>
         <div class="field-row"><label for="col-hex-text">Hex</label><input type="color" id="col-hex" aria-label="Kleur kiezen via kleurenkiezer" value="#111111" oninput="hexToCmyk()"><input type="text" id="col-hex-text" value="#111111" oninput="syncHexText()"></div>
@@ -1292,6 +1299,37 @@ function variantList(){
 function renderVariantChecks(){
   renderVariantCheckList();
   renderComboEditor();
+  renderColorSuggestions();
+}
+
+/* ── KLEURSUGGESTIES (stap 03) ──
+   De kleuren die in de logo's gevonden zijn maar nog aan geen merkkleur gekoppeld zijn, staan bovenaan stap 03.
+   Een klik vult de hexcode in het formulier in; naam en CMYK komen uit het merkboek (CMYK wordt nooit geraden).
+   Na het opslaan koppelt autoMatchLogoColors() de kleur vanzelf en verdwijnt de suggestie. Zo werk je stap 02 en
+   03 van boven naar onder af, zonder heen en weer te springen. Een kleur die de gebruiker bewust op "Niet
+   gekoppeld" zette, wordt niet voorgesteld. */
+function unlinkedLogoColors(){
+  const out = [];
+  for (const l of logos) for (const hex of l.colors){
+    if (brandColorFor(l, hex)) continue;
+    if (l.colorMapManual.has(hex) && l.colorMap[hex] === null) continue;
+    if (!out.includes(hex)) out.push(hex);
+  }
+  return out;
+}
+function renderColorSuggestions(){
+  const wrap = document.getElementById('color-suggestions');
+  const hexes = unlinkedLogoColors();
+  if (!hexes.length){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `<div class="suggest-title">Gevonden in je logo's, nog geen merkkleur:</div>
+    <div class="suggest-row">${hexes.map(hex => `<button type="button" class="color-chip" data-hex="${hex}" aria-label="${hex.toUpperCase()} als merkkleur invullen"><span class="swatch-dot" style="background:${hex}"></span>${hex.toUpperCase()}</button>`).join('')}</div>
+    <div class="hint-text">Klik om de hexcode in te vullen, en vul naam en CMYK aan uit het merkboek.</div>`;
+  wrap.querySelectorAll('.color-chip').forEach(btn => btn.addEventListener('click', () => {
+    cancelColorEdit();
+    document.getElementById('col-hex').value = btn.dataset.hex;
+    document.getElementById('col-hex-text').value = btn.dataset.hex;
+    document.getElementById('col-name').focus();
+  }));
 }
 function renderVariantCheckList(){
   const wrap = document.getElementById('variant-checks');

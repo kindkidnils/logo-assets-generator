@@ -116,6 +116,7 @@ Het resultaatvlak rechts toont geen render van het logo (checkerboard-preview), 
 Patroon: `{klantnaam}-{rol}-{kleurversie}-{digitaal|print}-{detail}.{ext}`, bv. `tigron-primary-logo-groen-digitaal-0512px.png` of `tigron-primary-logo-zwart-print.eps`.
 
 - Rol staat **altijd** in de bestandsnaam (niet enkel de mapnaam) — een bestand moet ook begrijpelijk zijn als het uit zijn map wordt gehaald.
+- Twee logo's met dezelfde rol krijgen anders dezelfde bestandsnamen: het tweede krijgt een nummer (`…-logo-mark-2-…`, `roleSlugs()`). De rol zelf en de mapnaam blijven zoals ingetypt.
 - `digitaal`/`print` staat expliciet in elke bestandsnaam — voorkomt dat een klant een digitaal (RGB, lage/schermresolutie) bestand per ongeluk voor drukwerk gebruikt, ook zonder de mapstructuur-context.
 - Eén PNG per kleurversie, zonder maat in de naam (`…-digitaal.png`, 3000 px langste zijde). Vroeger waren er vier maten (256–2048 px) plus een "print"-PNG; dat is bewust afgeslankt — zie "Bewust niet".
 - Bekende open vraag, nog niet beslist: bestandsnamen zijn nu Nederlandstalig (`digitaal`, `print`, `op-wit`). Voor internationale klanten kan Engels een betere keuze zijn — bewust nog niet omgezet, wacht op een beslissing.

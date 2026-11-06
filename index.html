@@ -361,6 +361,17 @@ function toggleSheet(){
 function slugify(name){
   return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'logo';
 }
+function roleSlugs(){
+  // logo-id → rol als slug, voor de bestandsnamen. Twee logo's met dezelfde rol (bv. twee keer "Logo Mark") krijgen
+  // anders dezelfde bestandsnamen, die buiten hun map niet uit elkaar te houden zijn: de tweede krijgt "-2", enz.
+  const out = {}, seen = {};
+  for (const l of logos){
+    const base = slugify(l.role);
+    seen[base] = (seen[base] || 0) + 1;
+    out[l.id] = seen[base] > 1 ? `${base}-${seen[base]}` : base;
+  }
+  return out;
+}
 function rolePart(role){
   const cleaned = (role || '').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_');
   return cleaned || 'Logo';
@@ -1228,7 +1239,7 @@ function buildExportTree(){
     const logo = sortedLogos[i];
     const variants = variantsForLogo(logo, allVariants);
     const folderName = String(i + 1).padStart(2, '0') + '_' + rolePart(logo.role);
-    const nameBase = `${clientSlug}-${slugify(logo.role)}`;
+    const nameBase = `${clientSlug}-${roleSlugs()[logo.id]}`;
     const logoFolder = { name: folderName, type: 'folder', children: [] };
 
     if (doSvg || doPng || doJpg || doWebp){
@@ -1988,7 +1999,7 @@ async function exportZip(){
     const folderName = String(i + 1).padStart(2, '0') + '_' + rolePart(logo.role);
     const folder = zip.folder(folderName);
     const digital = folder.folder('01_RGB_Digital');
-    const nameBase = `${clientSlug}-${slugify(logo.role)}`;
+    const nameBase = `${clientSlug}-${roleSlugs()[logo.id]}`;
     const logoVariants = variantsForLogo(logo, variants);
     // Elke versie is een SVG: "Origineel" en de combinaties met een kleur per vorm, de andere
     // volledig in één kleur. Alle rasterformaten worden daaruit gerenderd, bijgesneden tot het logo.

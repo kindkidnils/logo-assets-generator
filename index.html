@@ -95,6 +95,13 @@ input[type=file] { display: none; }
 .color-edit svg { width: 11px; height: 11px; }
 .color-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
+/* Monoversie en samensmelten (stap 02) */
+.mono-box { background: #F2F3F1; border-radius: 8px; padding: 8px; margin-top: 8px; }
+.mono-box.warn { box-shadow: inset 3px 0 0 #111; }
+.mono-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #111; margin-bottom: 4px; }
+.mono-box .hint-text { margin-bottom: 6px; }
+.combo-warn { font-size: 11px; color: #111; margin-top: 6px; }
+
 /* Kleurcombinaties voor meerkleurige logo's (stap 04) */
 #combo-editor { margin: 10px 0 8px; }
 .combo-title { font-size: 11px; font-weight: 500; color: #111; margin-bottom: 6px; }
@@ -248,6 +255,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
           <div class="hint-text" style="opacity:0.85; font-style:normal; margin-bottom:4px">Kleuren in "<span id="logo-colors-active-name"></span>"</div>
           <div id="logo-color-rows"></div>
           <div class="hint-text" id="logo-color-hint"></div>
+          <div id="logo-mono-controls"></div>
+          <input type="file" id="mono-upload" accept=".svg,image/svg+xml,.pdf,application/pdf" onchange="handleMonoUpload(this)" style="display:none">
         </div>
         <div class="hint-text" style="margin-top:6px">Elk logo krijgt een genummerde map op basis van zijn rol, bv. 01_Primary_Logo. Typ zelf een naam of kies een suggestie. Enkel vectorbestanden (SVG/PDF) — dat garandeert een scherpe, oneindig schaalbare EPS voor print; bij een PDF wordt enkel de eerste pagina gebruikt.</div>
       </div>
@@ -361,65 +370,70 @@ function rolePart(role){
 // Logo's die nog aan het inladen zijn (een SVG of PDF laadt asynchroon). Telt mee voor de standaardrol, zodat
 // bij meerdere bestanden tegelijk enkel het eerste "Primary Logo" wordt.
 let pendingLogos = 0;
+function vectorFileKind(file){
+  const n = file.name.toLowerCase();
+  if (file.type === 'application/pdf' || n.endsWith('.pdf')) return 'pdf';
+  if (file.type === 'image/svg+xml' || n.endsWith('.svg')) return 'svg';
+  return null;
+}
+function loadVectorFile(file){
+  // Leest een SVG of PDF in. Geeft {type, img, svgText, pdfBytes, pageCount, svgFromPdf, vectorSvg}; vectorSvg is
+  // de SVG waaruit kleuren, rand en print-paden komen (bij een PDF de omgezette paden).
+  const type = vectorFileKind(file);
+  if (type === 'pdf'){
+    return handlePdfUpload(file).then(({ img, pdfBytes, pageCount, svgFromPdf }) =>
+      ({ type, img, svgText: null, pdfBytes, pageCount, svgFromPdf, vectorSvg: svgFromPdf }))
+      .catch(err => { throw new Error('Kon "' + file.name + '" niet als PDF inlezen: ' + (err.message || err)); });
+  }
+  return new Promise((resolve, reject) => {
+    const textReader = new FileReader();
+    textReader.onload = e => {
+      const svgText = e.target.result;
+      loadSvgImage(svgText)
+        .then(img => resolve({ type, img, svgText, vectorSvg: svgText }))
+        .catch(() => reject(new Error('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?')));
+    };
+    textReader.onerror = () => reject(new Error('Kon "' + file.name + '" niet lezen.'));
+    textReader.readAsText(file);
+  });
+}
 function handleLogoUpload(input){
   const files = Array.from(input.files || []);
   files.forEach(file => {
-    const id = 'logo-' + (idCounter++);
-    const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    if (!isPdf && !isSvg){
+    if (!vectorFileKind(file)){
       alert('"' + file.name + '" is geen SVG of PDF. Deze tool aanvaardt enkel vectorbestanden — exporteer het logo eerst als SVG of PDF.');
       return;
     }
+    const id = 'logo-' + (idCounter++);
     const defaultRole = logos.length + pendingLogos === 0 ? 'Primary Logo' : 'Logo Mark';
+    const name = file.name.replace(/\.[^.]+$/, '');
     pendingLogos++;
-    const done = () => { pendingLogos--; };
-    if (isPdf){
-      handlePdfUpload(file).then(({ img, pdfBytes, pageCount, svgFromPdf }) => {
-        done();
-        addLogo({
-          id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
-          role: defaultRole, type: 'pdf', img, svgText: null, pdfBytes, pageCount, svgFromPdf
-        }, svgFromPdf);
-      }).catch(err => {
-        done();
-        alert('Kon "' + file.name + '" niet als PDF inlezen: ' + (err.message || err));
-      });
-    } else {
-      const textReader = new FileReader();
-      textReader.onload = e => {
-        const svgText = e.target.result;
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
-        const img = new Image();
-        img.onload = () => {
-          done();
-          addLogo({
-            id, name: file.name.replace(/\.[^.]+$/, ''), slug: slugify(file.name.replace(/\.[^.]+$/, '')),
-            role: defaultRole, type: 'svg', img, svgText
-          }, svgText);
-        };
-        img.onerror = () => { done(); alert('Kon "' + file.name + '" niet inladen. Is het een geldig SVG-bestand?'); };
-        img.src = dataUrl;
-      };
-      textReader.onerror = () => { done(); alert('Kon "' + file.name + '" niet lezen.'); };
-      textReader.readAsText(file);
-    }
+    loadVectorFile(file).then(({ vectorSvg, ...src }) => {
+      pendingLogos--;
+      addLogo({ id, name, slug: slugify(name), role: defaultRole, ...src }, vectorSvg);
+    }).catch(err => { pendingLogos--; alert(err.message); });
   });
   input.value = '';
 }
-function addLogo(logo, vectorSvg){
+function analyzeVector(vectorSvg){
+  // kleuren per vorm, rand van het logo, en welke kleuren elkaar raken (zie touchingColorPairs)
   const { svg, colors: detected, maxStroke } = annotateSvgColors(vectorSvg);
-  Object.assign(logo, { colorSvg: svg, colors: detected, colorMap: {}, colorMapManual: new Set(),
-    bbox: logoBBox(svg, maxStroke / 2),
+  const bbox = logoBBox(svg, maxStroke / 2);
+  return { colorSvg: svg, colors: detected, bbox,
     // zonder vulvormen geen vector-PDF; de EPS valt dan terug op het rastermasker
-    hasVector: collectPaintOps(new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement, [1, 0, 0, 1, 0, 0]).length > 0 });
+    hasVector: collectPaintOps(new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement, [1, 0, 0, 1, 0, 0]).length > 0,
+    touchPairs: detected.length > 1 ? touchingColorPairs(svg, bbox) : [] };
+}
+function addLogo(logo, vectorSvg){
+  Object.assign(logo, analyzeVector(vectorSvg), { colorMap: {}, colorMapManual: new Set(), mono: null, allowMerged: false });
   autoMatchLogoColors(logo);
   // In de volgorde van uploaden, ook als een later bestand sneller ingeladen is (bv. een SVG na een PDF):
   // het "Primary Logo" komt zo altijd in map 01
   const seq = l => parseInt(l.id.slice(5), 10);
   const at = logos.findIndex(l => seq(l) > seq(logo));
   if (at < 0) logos.push(logo); else logos.splice(at, 0, logo);
-  if (!activeLogoId) activeLogoId = logo.id;
+  // zolang de gebruiker zelf niets koos, is het eerste logo in de rij actief
+  if (!activeLogoId || activeLogoAuto){ activeLogoId = logos[0].id; activeLogoAuto = true; }
   renderLogoThumbs(); renderVariantChecks(); renderExportTree(); updateExportState(); updateEstimate();
 }
 
@@ -543,6 +557,32 @@ function renderLogoColorControls(){
   document.getElementById('logo-color-hint').textContent = active.colors.every(hex => brandColorFor(active, hex))
     ? 'De versie "Origineel" en de kleurcombinaties in stap 04 gebruiken per kleur de hex (digitaal) en de exacte CMYK (print) van de gekoppelde merkkleur.'
     : 'Koppel elke kleur aan een merkkleur uit stap 03. Een kleur zonder koppeling kan je in stap 04 niet vervangen, en zolang ze in een versie blijft staan, krijgt die versie geen print-EPS: CMYK wordt nooit geschat.';
+  renderMonoControls(active);
+}
+function renderMonoControls(logo){
+  // Zwart en Wit van een meerkleurig logo: officiële monoversie, of een waarschuwing als de vormen samensmelten
+  const wrap = document.getElementById('logo-mono-controls');
+  const bw = [{ key: 'black', hex: '#000000', label: 'Zwart' }, { key: 'white', hex: '#ffffff', label: 'Wit' }]
+    .map(v => ({ ...v, combo: combos.find(c => c.id === v.key) }));
+  const merging = bw.filter(v => mergesIn(logo, v)).map(v => v.label);
+  let html = '';
+  if (logo.mono){
+    html = `<div class="mono-box">
+      <div class="mono-head"><span>Monoversie: <b>${escapeHtml(logo.mono.name)}</b></span>
+        <button type="button" class="color-remove" id="logo-mono-remove" aria-label="Monoversie ${escapeHtml(logo.mono.name)} loskoppelen" onclick="removeMono()">×</button></div>
+      <div class="hint-text">Zwart en Wit van dit logo gebruiken de vormen van de monoversie, met haar eigen rand. De aanpassingen aan Zwart en Wit in stap 04 gelden niet voor dit logo.</div>
+    </div>`;
+  } else if (merging.length){
+    html = `<div class="mono-box warn" role="note">
+      <div class="mono-head"><span><b>${merging.join(' en ')}</b>: vormen smelten samen</span></div>
+      <div class="hint-text">In ${merging.length > 1 ? 'deze versies' : 'deze versie'} krijgen vormen die elkaar raken dezelfde kleur en worden ze één vlak. Ze ${merging.length > 1 ? 'worden' : 'wordt'} daarom niet gemaakt. Beste oplossing: de officiële monoversie uit het merkboek, met een uitsparing tussen de vormen. Of pas Zwart en Wit aan in stap 04.</div>
+      <button type="button" class="small-btn full" id="logo-mono-add" onclick="document.getElementById('mono-upload').click()">Monoversie opladen (SVG, PDF)</button>
+      <label class="check-row" style="margin:8px 0 0"><input type="checkbox" id="logo-allow-merged" ${logo.allowMerged ? 'checked' : ''} onchange="setAllowMerged(this.checked)"><span>Toch samengesmolten maken</span></label>
+    </div>`;
+  } else {
+    html = `<button type="button" class="small-btn full" id="logo-mono-add" style="margin-top:8px" onclick="document.getElementById('mono-upload').click()">Officiële monoversie koppelen (optioneel)</button>`;
+  }
+  wrap.innerHTML = html;
 }
 
 /* ── KLEURCOMBINATIES ──
@@ -560,11 +600,17 @@ function comboFill(logo, combo, srcHex){
   return col ? { hex: col.hex, cmyk: [col.c/100, col.m/100, col.y/100, col.k/100] } : { hex: srcHex || '#000000', cmyk: null };
 }
 function comboForVariant(v){ return v.key === 'original' ? ORIGINAL_COMBO : (v.combo || null); }
+function isBlackOrWhite(v){ return v.key === 'black' || v.key === 'white'; }
+function variantSource(logo, v){
+  // De bron van een versie: de officiële monoversie voor Zwart en Wit als die gekoppeld is, anders het logo zelf.
+  // Heeft dezelfde velden als een logo (type, svgText/svgFromPdf/pdfBytes, img, colorSvg, bbox, hasVector).
+  return logo.mono && isBlackOrWhite(v) ? logo.mono : logo;
+}
 function perShapeVariant(logo, v){
   // true: elke vorm een eigen kleur. false: het hele logo in één vlakke kleur (eenkleurig logo, merkkleurversie,
-  // of Zwart/Wit zonder aanpassing — dan kleurt de vlakke route ook lijnen mee)
+  // officiële monoversie, of Zwart/Wit zonder aanpassing — dan kleurt de vlakke route ook lijnen mee)
   const combo = comboForVariant(v);
-  if (!combo || !isMultiColor(logo)) return false;
+  if (!combo || !isMultiColor(logo) || variantSource(logo, v) !== logo) return false;
   if (!combo.builtin || combo === ORIGINAL_COMBO) return true;
   const plain = { ...combo, map: {} };
   return logo.colors.some(hex => comboFill(logo, combo, hex).hex !== comboFill(logo, plain, hex).hex);
@@ -581,8 +627,110 @@ function comboSvg(logo, combo){
   return new XMLSerializer().serializeToString(doc);
 }
 function monoSvgOf(logo){ return logo.type === 'svg' ? logo.svgText : logo.svgFromPdf; }
+function sourceCopies(logo, variants, nameBase){
+  // ongewijzigde kopieën van de bronbestanden voor de print-map: het logo, en de monoversie als die gebruikt wordt
+  const out = [];
+  const add = (src, tag) => {
+    if (src.type === 'svg' && src.svgText) out.push({ name: `${nameBase}${tag}-print-vector-bron.svg`, data: src.svgText });
+    else if (src.type === 'pdf' && src.pdfBytes) out.push({ name: `${nameBase}${tag}-print-bron.pdf`, data: src.pdfBytes });
+  };
+  add(logo, '');
+  if (logo.mono && variants.some(isBlackOrWhite)) add(logo.mono, '-mono');
+  return out;
+}
 function variantSvg(logo, v){
-  return perShapeVariant(logo, v) ? comboSvg(logo, comboForVariant(v)) : recolorSvgText(monoSvgOf(logo), v.hex);
+  return perShapeVariant(logo, v) ? comboSvg(logo, comboForVariant(v)) : recolorSvgText(monoSvgOf(variantSource(logo, v)), v.hex);
+}
+
+/* ── SAMENSMELTEN ──
+   Krijgen twee vormen die elkaar raken of overlappen dezelfde kleur, dan smelten ze samen tot één vlak (bv. de twee
+   bladeren van Comova in de zwarte versie). Bij upload wordt één keer bepaald welke bronkleuren elkaar raken: elke
+   kleur apart op een klein canvas getekend (iets verdikt, zodat ook vormen met een haarfijne tussenruimte tellen),
+   en dan gekeken waar twee kleuren dezelfde pixels bedekken. */
+const TOUCH_SIZE = 400;  // px, langste zijde
+const TOUCH_PAD = 1;     // px verdikking per kant (≈ 0,25 % van het logo)
+function touchingColorPairs(svgText, box){
+  const ops = collectPaintOps(new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement, [1, 0, 0, 1, 0, 0]);
+  const groups = new Map();
+  for (const op of ops) if (op.color){ if (!groups.has(op.color)) groups.set(op.color, []); groups.get(op.color).push(op); }
+  const keys = [...groups.keys()];
+  if (keys.length < 2) return [];
+  const S = TOUCH_SIZE / Math.max(box.w, box.h), m = TOUCH_PAD + 1;
+  const W = Math.ceil(box.w * S) + 2 * m, H = Math.ceil(box.h * S) + 2 * m;
+  const F = [S, 0, 0, S, m - S * box.x, m - S * box.y];
+  const masks = keys.map(k => {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = ctx.strokeStyle = '#000'; ctx.lineWidth = 2 * TOUCH_PAD; ctx.lineJoin = 'round';
+    for (const op of groups.get(k)){
+      const M = matMultiply(F, op.matrix), p = new Path2D();
+      for (const sub of op.subpaths) for (const seg of sub){
+        if (seg.type === 'M') p.moveTo(...matApply(M, seg.x, seg.y));
+        else if (seg.type === 'L') p.lineTo(...matApply(M, seg.x, seg.y));
+        else if (seg.type === 'C') p.bezierCurveTo(...matApply(M, seg.x1, seg.y1), ...matApply(M, seg.x2, seg.y2), ...matApply(M, seg.x, seg.y));
+        else if (seg.type === 'Z') p.closePath();
+      }
+      ctx.fill(p, op.fillRule); ctx.stroke(p);
+    }
+    return ctx.getImageData(0, 0, W, H).data;
+  });
+  const pairs = [];
+  for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++){
+    const a = masks[i], b = masks[j];
+    for (let n = 3; n < a.length; n += 4) if (a[n] > 32 && b[n] > 32){ pairs.push([keys[i], keys[j]]); break; }
+  }
+  return pairs;
+}
+function mergesIn(logo, v){
+  // smelten in deze versie vormen van verschillende kleuren samen?
+  if (!isMultiColor(logo) || variantSource(logo, v) !== logo || !logo.touchPairs.length) return false;
+  const combo = perShapeVariant(logo, v) ? comboForVariant(v) : null;
+  const to = hex => combo ? comboFill(logo, combo, hex).hex : v.hex;
+  return logo.touchPairs.some(([a, b]) => to(a) === to(b));
+}
+function skippedAsMerged(logo, v){
+  // Zwart en Wit worden overgeslagen zolang ze samensmelten, tenzij de gebruiker ze toch wil. Een eigen combinatie
+  // niet: die is bewust gemaakt, dus enkel een waarschuwing.
+  return isBlackOrWhite(v) && !logo.allowMerged && mergesIn(logo, v);
+}
+
+/* ── OFFICIËLE MONOVERSIE ──
+   Een eenkleurige versie uit het merkboek, met de scheidingen tussen de vormen als echte uitsparingen. Zwart en Wit
+   van dat logo gebruiken dan die vormen (met hun eigen rand), in plaats van alles samen te smelten. */
+function handleMonoUpload(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  const logo = logos.find(l => l.id === activeLogoId);
+  if (!file || !logo) return;
+  if (!vectorFileKind(file)){ alert('"' + file.name + '" is geen SVG of PDF. Laad de monoversie op als vectorbestand.'); return; }
+  loadVectorFile(file).then(({ vectorSvg, ...src }) => {
+    const info = analyzeVector(vectorSvg);
+    if (info.colors.length > 1){
+      alert('"' + file.name + '" bevat meer dan één kleur (' + info.colors.join(', ') + '). Een monoversie is één kleur, met de scheidingen tussen de vormen als echte uitsparingen, niet als witte vormen erbovenop: wit kan in de witte versie niet omgekeerd worden.');
+      return;
+    }
+    if (!info.colors.length && !info.hasVector){ alert('In "' + file.name + '" zijn geen vulvormen gevonden.'); return; }
+    logo.mono = { name: file.name.replace(/\.[^.]+$/, ''), ...src, ...info };
+    renderLogoColorControls(); renderVariantChecks(); renderExportTree(); updateEstimate();
+    const btn = document.getElementById('logo-mono-remove');
+    if (btn) btn.focus();
+  }).catch(err => alert(err.message));
+}
+function removeMono(){
+  const logo = logos.find(l => l.id === activeLogoId);
+  if (!logo) return;
+  logo.mono = null;
+  renderLogoColorControls(); renderVariantChecks(); renderExportTree(); updateEstimate();
+  const btn = document.getElementById('logo-mono-add');
+  if (btn) btn.focus();
+}
+function setAllowMerged(checked){
+  const logo = logos.find(l => l.id === activeLogoId);
+  if (!logo) return;
+  logo.allowMerged = checked;
+  renderLogoColorControls(); renderVariantChecks(); renderExportTree(); updateEstimate();
+  const box = document.getElementById('logo-allow-merged');
+  if (box) box.focus();
 }
 function variantFgHexes(logo, v){
   // de kleuren die in deze versie van het logo zichtbaar zijn (voor de contrastregel van de JPG's)
@@ -616,8 +764,8 @@ function renderComboEditor(){
   const brands = comboBrandColors();
   const unmapped = logos.filter(isMultiColor).some(l => l.colors.some(hex => !brandColorFor(l, hex)));
   const preview = combo => {
-    const v = combo === ORIGINAL_COMBO ? { key: 'original' } : { key: 'combo', combo, hex: combo.base === 'white' ? '#ffffff' : '#000000' };
-    const svg = cropSvg(variantSvg(logo, v), logo.bbox);
+    const v = combo === ORIGINAL_COMBO ? { key: 'original' } : combo.builtin ? { key: combo.id, combo, hex: combo.id === 'white' ? '#ffffff' : '#000000' } : { key: 'combo-' + combo.id, combo };
+    const svg = cropSvg(variantSvg(logo, v), variantSource(logo, v).bbox);
     return `<img class="combo-preview" alt="Voorbeeld: ${escapeHtml(logo.name)} in ${escapeHtml(combo.name)}" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}">`;
   };
   const optionsFor = (combo, brand) => {
@@ -647,7 +795,16 @@ function renderComboEditor(){
         <label for="combo-${combo.id}-${b.id}"><span class="swatch-dot" style="background:${b.hex}"></span>${escapeHtml(b.name)}</label>
         <select id="combo-${combo.id}-${b.id}" data-combo="${combo.id}" data-brand="${b.id}">${optionsFor(combo, b)}</select>
       </div>`).join('');
-    card.innerHTML = `<div class="combo-head">${preview(combo)}${head}</div>${rows}`;
+    let warn = '';
+    if (combo !== ORIGINAL_COMBO){
+      const v = combo.builtin ? { key: combo.id, hex: combo.id === 'white' ? '#ffffff' : '#000000', combo } : { key: 'combo-' + combo.id, combo };
+      const hit = logos.filter(l => mergesIn(l, v));
+      if (hit.length){
+        const skipped = hit.filter(l => skippedAsMerged(l, v)).length === hit.length;
+        warn = `<div class="combo-warn" role="note"><b>Vormen smelten samen</b> in ${hit.map(l => escapeHtml(l.name)).join(', ')}${skipped ? ', dus deze versie wordt daar niet gemaakt' : ''}.</div>`;
+      }
+    }
+    card.innerHTML = `<div class="combo-head">${preview(combo)}${head}</div>${rows}${warn}`;
     wrap.appendChild(card);
   }
   const add = document.createElement('button');
@@ -679,7 +836,7 @@ function setComboColor(comboId, brandId, value){
   const combo = combos.find(c => c.id === comboId);
   if (!combo) return;
   if (value) combo.map[brandId] = value; else delete combo.map[brandId];
-  renderVariantChecks(); renderExportTree(); updateEstimate();
+  renderLogoColorControls(); renderVariantChecks(); renderExportTree(); updateEstimate();
   const sel = document.getElementById(`combo-${comboId}-${brandId}`);
   if (sel) sel.focus();
 }
@@ -713,7 +870,7 @@ function variantsForLogo(logo, variants){
   // scope 'multi': Origineel en eigen combinaties; scope 'mono': merkkleurversies (een meerkleurig logo in één
   // merkkleur smelt samen tot één vlak). Zwart en Wit gelden voor elk logo.
   const multi = isMultiColor(logo);
-  return variants.filter(v => !v.scope || (v.scope === 'multi') === multi);
+  return variants.filter(v => (!v.scope || (v.scope === 'multi') === multi) && !skippedAsMerged(logo, v));
 }
 function epsCmykFor(logo, v){
   // Per vorm een kleur kan enkel als vector (het rastermasker-vangnet kent maar één kleur), en enkel als elke
@@ -768,8 +925,9 @@ function focusLogoThumb(id){
   const el = (id && document.querySelector(`#logo-thumbs .thumb[data-logo-id="${id}"]`)) || document.querySelector('#logo-thumbs .thumb-add') || document.querySelector('#sidebar-body .upload-zone');
   if (el) el.focus();
 }
+let activeLogoAuto = false;
 function setActiveLogo(id){
-  activeLogoId = id; renderLogoThumbs(); renderVariantChecks(); renderExportTree();
+  activeLogoId = id; activeLogoAuto = false; renderLogoThumbs(); renderVariantChecks(); renderExportTree();
   focusLogoThumb(id);
 }
 function setActiveLogoRole(role){
@@ -1101,10 +1259,9 @@ function buildExportTree(){
       for (const v of variants){
         if (!epsCmykFor(logo, v)) continue;
         printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.eps`, type: 'file' });
-        if (logo.hasVector) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.pdf`, type: 'file' });
+        if (variantSource(logo, v).hasVector) printFiles.push({ name: `${nameBase}-${slugify(v.label)}-print.pdf`, type: 'file' });
       }
-      if (logo.type === 'svg' && logo.svgText) printFiles.push({ name: `${nameBase}-print-vector-bron.svg`, type: 'file' });
-      else if (logo.type === 'pdf' && logo.pdfBytes) printFiles.push({ name: `${nameBase}-print-bron.pdf`, type: 'file' });
+      sourceCopies(logo, variants, nameBase).forEach(f => printFiles.push({ name: f.name, type: 'file' }));
       if (printFiles.length) logoFolder.children.push({ name: '02_CMYK_Print', type: 'folder', children: printFiles });
     }
 
@@ -1781,10 +1938,10 @@ function computeCounts(){
     if (doJpg) total += lv.reduce((n, v) => n + jpgBgsFor(l, v, jpgBgs).length, 0);
     if (doWebp) total += lv.length;
     if (doPrint){
-      const withCmyk = lv.filter(v => epsCmykFor(l, v)).length;
-      total += withCmyk;                        // EPS met exacte CMYK
-      if (l.hasVector) total += withCmyk;       // PDF met exacte CMYK
-      total += 1; // bron-kopie (vector-SVG of PDF)
+      const withCmyk = lv.filter(v => epsCmykFor(l, v));
+      total += withCmyk.length;                                               // EPS met exacte CMYK
+      total += withCmyk.filter(v => variantSource(l, v).hasVector).length;    // PDF met exacte CMYK
+      total += sourceCopies(l, lv, '').length;                                // bron-kopieën (vector-SVG of PDF)
     }
   });
   return { total, variants };
@@ -1833,17 +1990,17 @@ async function exportZip(){
     const digital = folder.folder('01_RGB_Digital');
     const nameBase = `${clientSlug}-${slugify(logo.role)}`;
     const logoVariants = variantsForLogo(logo, variants);
-    const monoSvg = monoSvgOf(logo);
-    const box = logo.bbox;
     // Elke versie is een SVG: "Origineel" en de combinaties met een kleur per vorm, de andere
     // volledig in één kleur. Alle rasterformaten worden daaruit gerenderd, bijgesneden tot het logo.
+    // Zwart en Wit komen uit de monoversie als die gekoppeld is, met haar eigen rand.
     const svgFor = v => variantSvg(logo, v);
-    const raster = (v, longSide, bgHex) => renderRaster(svgFor(v), box, longSide, bgHex);
+    const boxFor = v => variantSource(logo, v).bbox;
+    const raster = (v, longSide, bgHex) => renderRaster(svgFor(v), boxFor(v), longSide, bgHex);
 
     if (doSvg){
       const svgFolder = digital.folder('01_SVG');
       for (const v of logoVariants){
-        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, cropSvg(svgFor(v), box));
+        svgFolder.file(`${nameBase}-${slugify(v.label)}-digitaal.svg`, cropSvg(svgFor(v), boxFor(v)));
       }
     }
     if (doPng){
@@ -1871,27 +2028,25 @@ async function exportZip(){
     }
     if (doPrint){
       const printFolder = folder.folder('02_CMYK_Print');
-      let mask = null;
+      const masks = new Map(); // per bron (logo of monoversie) één rastermasker
       for (const v of logoVariants){
         const cmyk = epsCmykFor(logo, v);
         if (!cmyk) continue;
         const title = `${nameBase}-${slugify(v.label)}-print`;
+        const source = variantSource(logo, v);
         // Versies met een kleur per vorm gebruiken de SVG met data-tkk-fill; de andere zijn één vlakke kleur
-        const src = perShapeVariant(logo, v) ? logo.colorSvg : monoSvg;
-        if (logo.hasVector){
-          printFolder.file(`${title}.eps`, buildVectorEPS(src, cmyk, title, 720, box));
-          printFolder.file(`${title}.pdf`, buildVectorPDF(src, cmyk, title, 720, box));
+        const src = perShapeVariant(logo, v) ? logo.colorSvg : monoSvgOf(source);
+        if (source.hasVector){
+          printFolder.file(`${title}.eps`, buildVectorEPS(src, cmyk, title, 720, source.bbox));
+          printFolder.file(`${title}.pdf`, buildVectorPDF(src, cmyk, title, 720, source.bbox));
         } else {
           // Geen vulvormen gevonden: enkel een EPS via het rastermasker (één vlakke kleur)
-          if (!mask) mask = extractMask(logo.img, EPS_MASK_SIZE, 0.08);
+          if (!masks.has(source)) masks.set(source, extractMask(source.img, EPS_MASK_SIZE, 0.08));
+          const mask = masks.get(source);
           printFolder.file(`${title}.eps`, buildFlatEPS({ maskWidth: mask.maskWidth, maskHeight: mask.maskHeight, bits: mask.bits, cmyk, title, dpi: 300 }));
         }
       }
-      if (logo.type === 'svg' && logo.svgText){
-        printFolder.file(`${nameBase}-print-vector-bron.svg`, logo.svgText);
-      } else if (logo.type === 'pdf' && logo.pdfBytes){
-        printFolder.file(`${nameBase}-print-bron.pdf`, logo.pdfBytes);
-      }
+      sourceCopies(logo, logoVariants, nameBase).forEach(f => printFolder.file(f.name, f.data));
     }
   }
 

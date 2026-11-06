@@ -35,6 +35,10 @@ html, body { height: 100%; overflow: hidden; font-family: 'Instrument Sans', san
 .section-label { font-size: 14px; font-weight: 700; text-transform: uppercase; color: #111; margin-bottom: 8px; border-top: 1px solid #ECEDEB; padding-top: 18px; }
 .upload-zone { border: 1px dashed #111; border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; font-size: 12px; color: #111; transition: all 0.15s; background: #fff; width: 100%; font-family: 'Instrument Sans', sans-serif; }
 .upload-zone:hover { background: #F2F3F1; }
+/* een logo wordt over een dropzone gesleept */
+.upload-zone.drag-over { background: #F2F3F1; border-style: solid; }
+#canvas-wrapper.drag-over { outline: 2px dashed #111; outline-offset: -10px; }
+#canvas-wrapper.drag-over .empty-hint { background: #F2F3F1; border-style: solid; }
 input[type=file] { display: none; }
 
 .thumb-grid { display: flex; flex-direction: row; gap: 5px; margin-top: 7px; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; scroll-snap-type: x mandatory; }
@@ -229,7 +233,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
       <div>
         <div class="section-label">02. Logo's</div>
-        <button class="upload-zone" onclick="document.getElementById('logo-upload').click()">Kies of upload logo's (SVG, PDF)</button>
+        <button class="upload-zone" data-drop="logo" onclick="document.getElementById('logo-upload').click()">Kies logo's of sleep ze hierheen (SVG, PDF)</button>
         <input type="file" id="logo-upload" accept=".svg,image/svg+xml,.pdf,application/pdf" multiple onchange="handleLogoUpload(this)">
         <div class="thumb-grid" id="logo-thumbs"></div>
         <div id="logo-role-controls" style="display:none; margin-top:8px">
@@ -314,8 +318,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
   <div id="main">
     <div id="canvas-area">
-      <div id="canvas-wrapper">
-        <button class="empty-hint" id="empty-hint" onclick="document.getElementById('logo-upload').click()">Upload een logo om te beginnen</button>
+      <div id="canvas-wrapper" data-drop="logo">
+        <button class="empty-hint" id="empty-hint" onclick="document.getElementById('logo-upload').click()">Sleep een logo hierheen of klik om te uploaden</button>
         <div id="export-tree" aria-label="Voorbeeld van de mapstructuur in de export"></div>
       </div>
       <div id="status-text"></div>
@@ -418,7 +422,10 @@ function loadVectorFile(file){
   });
 }
 function handleLogoUpload(input){
-  const files = Array.from(input.files || []);
+  handleLogoFiles(Array.from(input.files || []));
+  input.value = '';
+}
+function handleLogoFiles(files){
   files.forEach(file => {
     if (!vectorFileKind(file)){
       alert('"' + file.name + '" is geen SVG of PDF. Deze tool aanvaardt enkel vectorbestanden — exporteer het logo eerst als SVG of PDF.');
@@ -433,8 +440,29 @@ function handleLogoUpload(input){
       addLogo({ id, name, slug: slugify(name), role: defaultRole, ...src }, vectorSvg);
     }).catch(err => { pendingLogos--; alert(err.message); });
   });
-  input.value = '';
 }
+
+/* ── SLEPEN ── Logo's kunnen ook op de uploadknop, de lege-staatknop of het resultaatvlak gesleept worden
+   (elk element met data-drop="logo"). Elders op de pagina wordt een losgelaten bestand genegeerd, zodat de
+   browser het niet opent en de tool kwijt is. */
+function isFileDrag(e){ return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'); }
+document.addEventListener('dragover', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = e.target.closest('[data-drop="logo"]') ? 'copy' : 'none';
+});
+document.addEventListener('drop', e => { if (isFileDrag(e)) e.preventDefault(); });
+document.querySelectorAll('[data-drop="logo"]').forEach(zone => {
+  let depth = 0; // dragenter/dragleave vuren ook bij elk kindelement
+  zone.addEventListener('dragenter', e => { if (!isFileDrag(e)) return; depth++; zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', e => { if (!isFileDrag(e)) return; if (--depth <= 0){ depth = 0; zone.classList.remove('drag-over'); } });
+  zone.addEventListener('drop', e => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    depth = 0; zone.classList.remove('drag-over');
+    handleLogoFiles(Array.from(e.dataTransfer.files || []));
+  });
+});
 function analyzeVector(vectorSvg){
   // kleuren per vorm, rand van het logo, en welke kleuren elkaar raken (zie touchingColorPairs)
   const { svg, colors: detected, maxStroke } = annotateSvgColors(vectorSvg);
